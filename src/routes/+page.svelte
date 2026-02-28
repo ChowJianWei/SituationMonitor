@@ -1,6 +1,9 @@
 <script lang="ts">
     import { enhance } from "$app/forms";
     import { fade } from "svelte/transition";
+    import { onMount } from "svelte";
+    import NewsPanel from "$lib/components/panels/NewsPanel.svelte";
+    import SituationPanel from "$lib/components/panels/SituationPanel.svelte";
 
     let { data } = $props();
     let events = $derived(data.events);
@@ -9,6 +12,31 @@
     let subEmail = $state("");
     let subStatus = $state<"idle" | "loading" | "success" | "error">("idle");
     let subMessage = $state("");
+
+    // Live Feed State
+    let liveNews = $state<any>({
+        politics: [],
+        tech: [],
+        finance: [],
+        gov: [],
+        ai: [],
+        raw: [],
+    });
+    let liveNewsLoading = $state(true);
+
+    onMount(async () => {
+        try {
+            const res = await fetch("/api/news/live");
+            if (res.ok) {
+                const data = await res.json();
+                liveNews = data.news;
+            }
+        } catch (e) {
+            console.error("Failed to load live feed", e);
+        } finally {
+            liveNewsLoading = false;
+        }
+    });
 
     async function handleSubscribe(e: Event) {
         e.preventDefault();
@@ -71,188 +99,130 @@
         </div>
     </header>
 
-    <main
-        class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 grid grid-cols-1 lg:grid-cols-3 gap-12"
-    >
-        <!-- Feed Section -->
-        <div class="col-span-1 lg:col-span-2 space-y-8">
-            <div
-                class="flex items-center justify-between border-b border-neutral-800 pb-4"
-            >
-                <h2 class="text-2xl font-semibold">Latest Situations</h2>
-                <div
-                    class="flex items-center space-x-2 text-sm text-neutral-400"
-                >
-                    <span class="relative flex h-3 w-3">
-                        <span
-                            class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"
-                        ></span>
-                        <span
-                            class="relative inline-flex rounded-full h-3 w-3 bg-blue-500"
-                        ></span>
-                    </span>
-                    <span>Live Monitoring</span>
-                </div>
-            </div>
-
-            {#if events.length === 0}
-                <div
-                    class="py-12 text-center text-neutral-500 border border-neutral-800 border-dashed rounded-xl"
-                >
-                    No high-severity events detected recently. The baseline is
-                    quiet.
-                </div>
-            {:else}
-                <div class="space-y-6">
-                    {#each events as event}
-                        <a href="/events/{event.id}" class="block group">
-                            <article
-                                class="p-6 rounded-2xl border border-neutral-800 bg-neutral-900/50 hover:bg-neutral-800/50 hover:border-neutral-700 transition-all duration-300"
-                            >
-                                <div class="flex items-center space-x-3 mb-4">
-                                    <span
-                                        class="px-2.5 py-1 text-xs font-semibold rounded-md {event.severity >
-                                        150
-                                            ? 'bg-red-500/10 text-red-400 border border-red-500/20'
-                                            : 'bg-orange-500/10 text-orange-400 border border-orange-500/20'}"
-                                    >
-                                        Severity: {event.severity}
-                                    </span>
-                                    <span class="text-sm text-neutral-500"
-                                        >{new Date(
-                                            event.created_at,
-                                        ).toLocaleDateString(undefined, {
-                                            month: "short",
-                                            day: "numeric",
-                                            hour: "2-digit",
-                                            minute: "2-digit",
-                                        })}</span
-                                    >
-                                </div>
-                                <h3
-                                    class="text-xl font-bold mb-3 text-neutral-100 group-hover:text-blue-400 transition-colors"
-                                >
-                                    {event.title}
-                                </h3>
-
-                                <!-- Bullet points snippet -->
-                                <ul class="space-y-2 mb-6">
-                                    {#each (event.summary?.what_happened || []).slice(0, 2) as point}
-                                        <li
-                                            class="text-neutral-400 text-sm flex items-start"
-                                        >
-                                            <span
-                                                class="text-blue-500 mr-2 mt-0.5"
-                                                >•</span
-                                            >
-                                            <span class="line-clamp-2"
-                                                >{point}</span
-                                            >
-                                        </li>
-                                    {/each}
-                                </ul>
-
-                                <!-- Impact Tags -->
-                                {#if Array.isArray(event.event_impacts) ? event.event_impacts[0] : event.event_impacts}
-                                    {@const impact = Array.isArray(
-                                        event.event_impacts,
-                                    )
-                                        ? event.event_impacts[0]
-                                        : event.event_impacts}
-                                    <div
-                                        class="flex flex-wrap gap-2 mt-4 pt-4 border-t border-neutral-800/50"
-                                    >
-                                        {#each impact.sectors || [] as sector}
-                                            <span
-                                                class="px-2 py-1 bg-neutral-800 text-neutral-300 text-xs rounded border border-neutral-700"
-                                                >{sector}</span
-                                            >
-                                        {/each}
-                                        {#each (impact.tickers || []).slice(0, 4) as ticker}
-                                            <span
-                                                class="px-2 py-1 bg-blue-900/20 text-blue-400 text-xs rounded border border-blue-800/30"
-                                                >${ticker}</span
-                                            >
-                                        {/each}
-                                    </div>
-                                {/if}
-                            </article>
-                        </a>
-                    {/each}
-                </div>
-            {/if}
-        </div>
-
-        <!-- Sidebar / Widget -->
-        <div class="col-span-1 space-y-8">
-            <div
-                class="p-8 rounded-2xl bg-gradient-to-b from-blue-900/20 to-neutral-900 border border-blue-900/30 sticky top-24"
-            >
-                <h3 class="text-xl font-bold mb-2">High-Signal Alerts</h3>
-                <p class="text-sm text-neutral-400 mb-6 line-height-relaxed">
-                    Get instantly notified when breaking geopolitics and macro
-                    events impact specific sectors and tickers. Zero noise, just
-                    signal.
-                </p>
-
-                <form onsubmit={handleSubscribe} class="space-y-4">
-                    <div>
-                        <input
-                            type="email"
-                            bind:value={subEmail}
-                            placeholder="Enter your email"
-                            required
-                            class="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-4 py-3 text-white placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                        />
-                    </div>
-                    <button
-                        type="submit"
-                        disabled={subStatus === "loading"}
-                        class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 px-4 rounded-lg transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                    >
-                        {#if subStatus === "loading"}
-                            <svg
-                                class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
-                                xmlns="http://www.w3.org/2000/svg"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                            >
-                                <circle
-                                    class="opacity-25"
-                                    cx="12"
-                                    cy="12"
-                                    r="10"
-                                    stroke="currentColor"
-                                    stroke-width="4"
-                                ></circle>
-                                <path
-                                    class="opacity-75"
-                                    fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                ></path>
-                            </svg>
-                            Subscribing...
-                        {:else}
-                            Subscribe to Alerts
-                        {/if}
-                    </button>
-
-                    {#if subMessage}
-                        <p
-                            transition:fade
-                            class="text-sm mt-3 {subStatus === 'error'
-                                ? 'text-red-400'
-                                : 'text-green-400'}"
-                        >
-                            {subMessage}
+    <main class="w-full px-2 py-4 sm:px-4 sm:py-6 max-w-[2000px] mx-auto">
+        <!-- Masonry Grid Layout -->
+        <div class="columns-1 md:columns-2 lg:columns-3 xl:columns-4 2xl:columns-5 gap-4 space-y-4">
+            
+            <!-- 1. Subscription Widget -->
+            <div class="break-inside-avoid">
+                <div class="p-6 rounded-xl bg-gradient-to-b from-blue-900/40 to-neutral-900 border border-blue-900/50 shadow-lg relative overflow-hidden">
+                    <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-900/20 via-neutral-900/0 to-transparent"></div>
+                    <div class="relative z-10">
+                        <h3 class="text-xl font-bold mb-2 flex items-center gap-2">
+                            <div class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                            High-Signal Alerts
+                        </h3>
+                        <p class="text-xs text-neutral-400 mb-5 leading-relaxed">
+                            Geopolitics and macro alerts delivered when thresholds are breached. Zero noise.
                         </p>
-                    {/if}
-                </form>
-                <p class="text-xs text-neutral-500 mt-6 text-center">
-                    Situational awareness only. Not guaranteed financial advice.
-                    One-click unsubscribe.
-                </p>
+                        <form onsubmit={handleSubscribe} class="space-y-3">
+                            <input
+                                type="email"
+                                bind:value={subEmail}
+                                placeholder="Enter your email"
+                                required
+                                class="w-full bg-neutral-950/80 border border-neutral-800 rounded-lg px-3 py-2.5 text-sm text-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition"
+                            />
+                            <button
+                                type="submit"
+                                disabled={subStatus === "loading"}
+                                class="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-2.5 px-4 rounded-lg transition text-sm flex items-center justify-center disabled:opacity-50"
+                            >
+                                {#if subStatus === "loading"}
+                                    Subscribing...
+                                {:else}
+                                    Subscribe
+                                {/if}
+                            </button>
+                            {#if subMessage}
+                                <p class="text-xs text-center {subStatus === 'error' ? 'text-red-400' : 'text-green-400'}">
+                                    {subMessage}
+                                </p>
+                            {/if}
+                        </form>
+                    </div>
+                </div>
             </div>
+
+            <!-- 2. Main Alert Feed (The Supabase data) -->
+            <div class="break-inside-avoid">
+                <div class="flex flex-col border border-neutral-800 bg-neutral-900/80 rounded-xl overflow-hidden shadow-lg h-full max-h-[600px]">
+                    <div class="bg-neutral-800/80 px-4 py-3 border-b border-neutral-800 flex items-center justify-between sticky top-0 backdrop-blur-sm z-10">
+                        <h2 class="text-sm font-bold text-neutral-100 flex items-center gap-2">
+                            <div class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></div>
+                            Critical Alerts
+                        </h2>
+                    </div>
+                    <div class="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+                        {#if events.length === 0}
+                            <div class="py-8 text-center text-xs text-neutral-500 border border-neutral-800 border-dashed rounded-lg">
+                                Baseline is quiet.
+                            </div>
+                        {:else}
+                            {#each events as event}
+                                <a href="/events/{event.id}" class="block group bg-neutral-950/50 p-4 rounded-lg border border-neutral-800/60 hover:border-neutral-700 transition">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-red-500/10 text-red-400 border border-red-500/20 uppercase tracking-wider">
+                                            Sev: {event.severity}
+                                        </span>
+                                    </div>
+                                    <h3 class="text-sm font-bold mb-2 text-neutral-200 group-hover:text-blue-400 transition leading-snug">
+                                        {event.title}
+                                    </h3>
+                                    <p class="text-[11px] text-neutral-400 line-clamp-2 leading-relaxed">
+                                        {event.summary?.why_it_matters?.[0] || 'Triggered alert threshold.'}
+                                    </p>
+                                </a>
+                            {/each}
+                        {/if}
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. Situation Panels (Specific Monitors) -->
+            <div class="break-inside-avoid">
+                <SituationPanel 
+                    title="Taiwan Strait Watch" 
+                    subtitle="Monitoring maritime & air activity" 
+                    keywords={["taiwan", "china", "strait", "pla", "taipei"]}
+                    newsItems={liveNews.raw}
+                />
+            </div>
+            
+            <div class="break-inside-avoid">
+                <SituationPanel 
+                    title="Middle East Crisis" 
+                    subtitle="Regional escalation monitor" 
+                    keywords={["israel", "iran", "gaza", "lebanon", "strike"]}
+                    newsItems={liveNews.raw}
+                />
+            </div>
+
+            <!-- 4. Category News Panels (Live Stream) -->
+            <div class="break-inside-avoid">
+                <NewsPanel category="politics" title="Geopolitics" newsItems={liveNews.politics} loading={liveNewsLoading} />
+            </div>
+            
+            <div class="break-inside-avoid">
+                <NewsPanel category="finance" title="Macro & Markets" newsItems={liveNews.finance} loading={liveNewsLoading} />
+            </div>
+            
+            <div class="break-inside-avoid">
+                <NewsPanel category="tech" title="Tech Sector" newsItems={liveNews.tech} loading={liveNewsLoading} />
+            </div>
+            
+            <div class="break-inside-avoid">
+                <NewsPanel category="ai" title="AI & Cyber" newsItems={liveNews.ai} loading={liveNewsLoading} />
+            </div>
+            
+            <div class="break-inside-avoid">
+                <NewsPanel category="gov" title="Gov & Policy" newsItems={liveNews.gov} loading={liveNewsLoading} />
+            </div>
+
+            <div class="break-inside-avoid">
+                <NewsPanel category="intel" title="Raw Intel Stream" newsItems={liveNews.raw} loading={liveNewsLoading} />
+            </div>
+
         </div>
     </main>
 </div>
