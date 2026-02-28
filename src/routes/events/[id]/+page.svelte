@@ -247,6 +247,67 @@
                                             ?.avgReturn || 0}%
                                     </div>
                                 </div>
+
+                                <!-- Actionable Historical Cases (Phase 13) -->
+                                {#if event.summary?.historicalCases && event.summary.historicalCases.length > 0}
+                                    <div
+                                        class="mt-4 pt-4 border-t border-blue-900/40"
+                                    >
+                                        <h4
+                                            class="text-xs text-blue-300 font-bold uppercase tracking-wider mb-3 flex items-center gap-1"
+                                        >
+                                            <svg
+                                                class="w-3 h-3"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                viewBox="0 0 24 24"
+                                                ><path
+                                                    stroke-linecap="round"
+                                                    stroke-linejoin="round"
+                                                    stroke-width="2"
+                                                    d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+                                                ></path></svg
+                                            >
+                                            Historical Reference Cases
+                                        </h4>
+                                        <div class="space-y-2">
+                                            {#each event.summary.historicalCases as hc}
+                                                <a
+                                                    href={hc.url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    class="block p-2.5 bg-black/30 hover:bg-black/50 border border-blue-900/20 hover:border-blue-500/50 rounded transition-all group"
+                                                >
+                                                    <div
+                                                        class="flex items-center justify-between mb-1"
+                                                    >
+                                                        <span
+                                                            class="text-[10px] font-bold text-blue-400 bg-blue-900/30 px-1.5 py-0.5 rounded uppercase tracking-wider"
+                                                            >{hc.date}</span
+                                                        >
+                                                        <svg
+                                                            class="w-3 h-3 text-blue-500/50 group-hover:text-blue-400 transition-colors"
+                                                            fill="none"
+                                                            stroke="currentColor"
+                                                            viewBox="0 0 24 24"
+                                                            ><path
+                                                                stroke-linecap="round"
+                                                                stroke-linejoin="round"
+                                                                stroke-width="2"
+                                                                d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                                                            ></path></svg
+                                                        >
+                                                    </div>
+                                                    <p
+                                                        class="text-xs text-neutral-300 group-hover:text-white leading-tight"
+                                                    >
+                                                        {hc.headline}
+                                                    </p>
+                                                </a>
+                                            {/each}
+                                        </div>
+                                    </div>
+                                {/if}
                             </div>
                         </div>
                     </section>
