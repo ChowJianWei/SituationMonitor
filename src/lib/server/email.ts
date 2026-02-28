@@ -6,7 +6,8 @@ const resendApiKey = env.RESEND_API_KEY || process.env.RESEND_API_KEY;
 export const resend = resendApiKey ? new Resend(resendApiKey) : null;
 
 // Base sender address
-export const SENDER_EMAIL = 'alerts@situation-monitor.com'; // Replace with a verified domain matching the Resend account
+// Using Resend's default onboarding address for testing purposes until domain is verified.
+export const SENDER_EMAIL = 'onboarding@resend.dev';
 
 export async function sendConfirmationEmail(email: string, token: string, baseUrl: string) {
     if (!resend) {
