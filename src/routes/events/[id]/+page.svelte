@@ -28,7 +28,7 @@
     <main class="max-w-4xl mx-auto px-4 sm:px-6 py-8 md:py-12">
         <article>
             <div class="mb-8 border-b border-neutral-800 pb-8">
-                <div class="flex items-center space-x-3 mb-4">
+                <div class="flex flex-wrap items-center gap-3 mb-4">
                     <span
                         class="px-2.5 py-1 text-xs font-semibold rounded-md {event.severity >
                         150
@@ -37,9 +37,20 @@
                     >
                         Severity Score: {event.severity}
                     </span>
-                    <span class="text-sm text-neutral-500"
-                        >{new Date(event.created_at).toLocaleString()}</span
+                    <span
+                        class="px-2.5 py-1 text-xs font-semibold rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20"
                     >
+                        Active Since: {new Date(
+                            event.created_at,
+                        ).toLocaleString()}
+                    </span>
+                    {#if event.summary?.expected_frequency}
+                        <span
+                            class="px-2.5 py-1 text-xs font-semibold rounded-md bg-purple-500/10 text-purple-400 border border-purple-500/20"
+                        >
+                            Impact: {event.summary.expected_frequency}
+                        </span>
+                    {/if}
                 </div>
                 <h1
                     class="text-3xl md:text-4xl font-extrabold text-white mb-6 leading-tight"
@@ -51,28 +62,121 @@
             <div class="grid grid-cols-1 md:grid-cols-3 gap-10">
                 <div class="md:col-span-2 space-y-10">
                     <!-- Summary block -->
-                    <section class="prose prose-invert max-w-none">
-                        <h2
-                            class="text-2xl font-bold border-b border-neutral-800 pb-2 mb-4"
+                    <section class="max-w-none">
+                        <div
+                            class="mb-8 p-6 bg-neutral-950 border border-neutral-800 rounded-xl"
                         >
-                            What Happened
-                        </h2>
-                        <ul class="space-y-2 text-neutral-300">
-                            {#each event.summary?.what_happened || [] as point}
-                                <li>{point}</li>
-                            {/each}
-                        </ul>
+                            <h2
+                                class="text-xl font-bold border-b border-neutral-800 pb-2 mb-4 text-white"
+                            >
+                                Situation Matrix
+                            </h2>
+                            <div class="space-y-6">
+                                <div>
+                                    <h3
+                                        class="text-sm font-semibold text-neutral-400 uppercase tracking-wider mb-2"
+                                    >
+                                        What Happened
+                                    </h3>
+                                    <ul
+                                        class="space-y-2 text-sm text-neutral-300 list-disc list-inside"
+                                    >
+                                        {#each event.summary?.what_happened || [] as point}
+                                            <li>{point}</li>
+                                        {/each}
+                                    </ul>
+                                </div>
+                                <div>
+                                    <h3
+                                        class="text-sm font-semibold text-neutral-400 uppercase tracking-wider mb-2"
+                                    >
+                                        Why it Matters
+                                    </h3>
+                                    <ul
+                                        class="space-y-2 text-sm text-neutral-300 list-disc list-inside"
+                                    >
+                                        {#each event.summary?.why_it_matters || [] as point}
+                                            <li>{point}</li>
+                                        {/each}
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
 
-                        <h2
-                            class="text-2xl font-bold border-b border-neutral-800 pb-2 mb-4 mt-8"
-                        >
-                            Why it Matters
-                        </h2>
-                        <ul class="space-y-2 text-neutral-300">
-                            {#each event.summary?.why_it_matters || [] as point}
-                                <li>{point}</li>
-                            {/each}
-                        </ul>
+                        <!-- Dual Impact Columns -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <!-- Positive Impact -->
+                            <div
+                                class="bg-green-500/10 border border-green-500/20 p-5 rounded-xl"
+                            >
+                                <h3
+                                    class="text-green-400 font-bold mb-3 flex items-center gap-2 text-sm uppercase tracking-wider"
+                                >
+                                    <svg
+                                        class="w-4 h-4"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                        ><path
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            stroke-width="2"
+                                            d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
+                                        ></path></svg
+                                    >
+                                    Scaling Focus
+                                </h3>
+                                <ul
+                                    class="space-y-2 text-sm text-green-200/90 list-disc list-inside"
+                                >
+                                    {#each event.summary?.positive_impacts || [] as item}
+                                        <li class="pl-1">{item}</li>
+                                    {:else}
+                                        <li
+                                            class="pl-1 italic opacity-50 text-xs"
+                                        >
+                                            Awaiting data...
+                                        </li>
+                                    {/each}
+                                </ul>
+                            </div>
+
+                            <!-- Negative Impact -->
+                            <div
+                                class="bg-red-500/10 border border-red-500/20 p-5 rounded-xl"
+                            >
+                                <h3
+                                    class="text-red-400 font-bold mb-3 flex items-center gap-2 text-sm uppercase tracking-wider"
+                                >
+                                    <svg
+                                        class="w-4 h-4"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                        ><path
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            stroke-width="2"
+                                            d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"
+                                        ></path></svg
+                                    >
+                                    Declining Focus
+                                </h3>
+                                <ul
+                                    class="space-y-2 text-sm text-red-200/90 list-disc list-inside"
+                                >
+                                    {#each event.summary?.negative_impacts || [] as item}
+                                        <li class="pl-1">{item}</li>
+                                    {:else}
+                                        <li
+                                            class="pl-1 italic opacity-50 text-xs"
+                                        >
+                                            Awaiting data...
+                                        </li>
+                                    {/each}
+                                </ul>
+                            </div>
+                        </div>
                     </section>
                 </div>
 

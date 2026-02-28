@@ -16,6 +16,8 @@
 		"@sveltejs/adapter-vercel": "^6.3.3",
 		"@sveltejs/kit": "^2.50.2",
 		"@sveltejs/vite-plugin-svelte": "^6.2.4",
+		"@types/d3": "^7.4.3",
+		"@types/topojson-client": "^3.1.5",
 		"autoprefixer": "^10.4.27",
 		"postcss": "^8.5.6",
 		"svelte": "^5.51.0",
@@ -26,6 +28,8 @@
 	},
 	"dependencies": {
 		"@supabase/supabase-js": "^2.98.0",
-		"resend": "^6.9.3"
+		"d3": "^7.9.0",
+		"resend": "^6.9.3",
+		"topojson-client": "^3.1.0"
 	}
 }

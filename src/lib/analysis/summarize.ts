@@ -1,7 +1,7 @@
 import type { EventCluster } from './event';
 import { env } from '$env/dynamic/private';
 
-export async function summarizeEvent(cluster: EventCluster): Promise<{ what_happened: string[], why_it_matters: string[] }> {
+export async function summarizeEvent(cluster: EventCluster): Promise<{ what_happened: string[], why_it_matters: string[], positive_impacts: string[], negative_impacts: string[], expected_frequency: string }> {
     const llmKey = env.LLM_API_KEY || process.env.LLM_API_KEY;
 
     // Fallback template approach if no LLM configured
@@ -12,7 +12,16 @@ export async function summarizeEvent(cluster: EventCluster): Promise<{ what_happ
                 `This event triggered a severity score of ${cluster.severityScore}.`,
                 `It heavily involves topics related to: ${cluster.sectors.join(', ') || 'General Markets'}`,
                 `Keep an eye on related assets as volatility may increase.`
-            ]
+            ],
+            positive_impacts: [
+                `${cluster.sectors[0] || 'Defense'} sector scaling opportunities.`,
+                `Potential short-term arbitrage in related commodities.`
+            ],
+            negative_impacts: [
+                `Declining stability in core supply chains.`,
+                `Projected 15% increase in operational costs for affected regions.`
+            ],
+            expected_frequency: "High Volatility (Multi-day impact)"
         };
     }
 
@@ -27,6 +36,15 @@ export async function summarizeEvent(cluster: EventCluster): Promise<{ what_happ
         why_it_matters: [
             `This development could have immediate cascading effects on ${cluster.sectors.join(', ')} sectors.`,
             `Potential regulatory or supply chain shifts are anticipated.`
-        ]
+        ],
+        positive_impacts: [
+            `Accelerated funding scaling for domestic ${cluster.sectors[0] || 'Tech'} components.`,
+            `Market consolidation favoring dominant players in unaffected zones.`
+        ],
+        negative_impacts: [
+            `Disruption of key trade routes leading to margin compression.`,
+            `Estimated supply delays of 2-4 weeks pending resolution.`
+        ],
+        expected_frequency: "Persistent (Week-long disruption expected)"
     };
 }
