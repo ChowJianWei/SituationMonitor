@@ -15,19 +15,23 @@ export async function GET() {
         const candidates = await fetchBreakingCandidates();
 
         // Keywords for Actuarial categorizations
-        const mhitRegex = /(mhit|health insurance|medical cost|medicare|healthcare cost|hospital billing)/i;
-        const pcRegex = /(fire insurance|property and casualty|catastrophe bond|auto insurance|climate risk|property damage|natural disaster)/i;
-        const lifeRegex = /(life insurance|mortality|longevity|annuity|pension|retirement planning)/i;
+        const mhitRegex = /(mhit|health insurance|medical cost|medicare|healthcare cost|hospital billing|prescription|pharma|longevity|mortality)/i;
+        const pcRegex = /(fire insurance|property and casualty|catastrophe bond|climate risk|property damage|natural disaster|hurricane|wildfire|flood)/i;
+        const autoRegex = /(auto insurance|commercial auto|fleet|telematics|car crash|traffic fatality|vehicle repair cost|auto liability)/i;
+        const cyberRegex = /(cyber insurance|ransomware|data breach|cyber attack|privacy liability|network security|hacker)/i;
+        const lifeRegex = /(life insurance|annuity|pension|retirement planning|yield curve|interest rate|mortality table)/i;
 
         const categorized = {
             mhit: [] as any[],
             property_casualty: [] as any[],
             life_pension: [] as any[],
+            auto: [] as any[],
+            cyber: [] as any[],
             raw: [] as any[]
         };
 
         for (const item of candidates) {
-            const content = (item.title + " " + item.severity_clues.join(" ")).toLowerCase();
+            const content = (item.title + " " + item.severity_clues?.join(" ") || "").toLowerCase();
             let matched = false;
 
             if (mhitRegex.test(content)) {
@@ -38,13 +42,21 @@ export async function GET() {
                 categorized.property_casualty.push(item);
                 matched = true;
             }
+            if (autoRegex.test(content)) {
+                categorized.auto.push(item);
+                matched = true;
+            }
+            if (cyberRegex.test(content)) {
+                categorized.cyber.push(item);
+                matched = true;
+            }
             if (lifeRegex.test(content)) {
                 categorized.life_pension.push(item);
                 matched = true;
             }
 
             // Always add to raw if it has some financial or risk relevance
-            if (!matched && /(insurance|risk|actuarial|premium|claim|liability)/i.test(content)) {
+            if (!matched && /(insurance|risk|actuarial|premium|claim|liability|underwriting|loss ratio)/i.test(content)) {
                 categorized.raw.push(item);
             }
         }
@@ -57,7 +69,7 @@ export async function GET() {
         console.error("Live Actuarial News error:", e);
         // Return empty arrays on failure so the UI doesn't crash
         return json({
-            news: { mhit: [], property_casualty: [], life_pension: [], raw: [] },
+            news: { mhit: [], property_casualty: [], life_pension: [], auto: [], cyber: [], raw: [] },
             error: true
         }, { status: 500 });
     }
