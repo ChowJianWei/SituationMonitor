@@ -80,8 +80,17 @@
         <div
             class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-14"
         >
-            <div class="font-bold text-xl tracking-tighter text-white">
-                SituationMonitor<span class="text-blue-500">.</span>
+            <div class="flex items-center gap-4">
+                <div class="font-bold text-xl tracking-tighter text-white">
+                    SituationMonitor<span class="text-blue-500">.</span>
+                </div>
+                <div class="hidden sm:block w-px h-6 bg-neutral-800"></div>
+                <a
+                    href="/actuarial"
+                    class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded text-[10px] font-bold uppercase tracking-wider hover:bg-emerald-500/20 transition"
+                >
+                    Actuarial View &rarr;
+                </a>
             </div>
             <div class="flex space-x-6 text-sm overflow-x-auto no-scrollbar">
                 {#each Object.entries(marketSnapshot) as [ticker, md]}
