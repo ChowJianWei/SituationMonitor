@@ -118,3 +118,5 @@ export async function POST({ request, url }) {
         return json({ error: 'Server error' }, { status: 500 });
     }
 }
+
+export const GET = POST;
