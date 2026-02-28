@@ -46,14 +46,32 @@ export async function sendAlertEmail(email: string, eventDetails: any, unsubToke
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.5;">
             <h2 style="color: #111;">${eventDetails.title}</h2>
             <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <h4 style="margin-top: 0; color: #1f2937;">Event Type: ${eventDetails.summary.category}</h4>
+                <p style="font-size: 14px; margin-bottom: 15px;"><strong>Causal Logic:</strong> ${eventDetails.summary.causalLogic}</p>
+                
                 <h4 style="margin-top: 0;">What Happened</h4>
-                <ul>${eventDetails.summary.what_happened.map((b: string) => `<li>${b}</li>`).join('')}</ul>
-                <h4>Why it Matters</h4>
-                <ul>${eventDetails.summary.why_it_matters.map((b: string) => `<li>${b}</li>`).join('')}</ul>
+                <ul style="margin-bottom: 15px;">${eventDetails.summary.what_happened.map((b: string) => `<li>${b}</li>`).join('')}</ul>
+
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+                    <tr>
+                        <td style="padding: 8px; border: 1px solid #e5e7eb; background: #fff;"><strong>Simulated Win Rate</strong></td>
+                        <td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: bold; color: #047857;">${eventDetails.summary.backtest.winRate}%</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border: 1px solid #e5e7eb; background: #fff;"><strong>Historical Cases</strong></td>
+                        <td style="padding: 8px; border: 1px solid #e5e7eb;">${eventDetails.summary.backtest.occurrences} identical events</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px; border: 1px solid #e5e7eb; background: #fff;"><strong>Average 1-Day Return</strong></td>
+                        <td style="padding: 8px; border: 1px solid #e5e7eb;">${eventDetails.summary.backtest.avgReturn > 0 ? '+' : ''}${eventDetails.summary.backtest.avgReturn}%</td>
+                    </tr>
+                </table>
+
+                <h4 style="margin-top: 0;">Determinant Impact Map</h4>
+                <ul>
+                    ${eventDetails.summary.impacts.map((imp: any) => `<li><strong>${imp.asset}</strong>: <span style="color: ${imp.direction === 'UP' ? '#059669' : '#dc2626'}">${imp.direction}</span></li>`).join('')}
+                </ul>
             </div>
-            
-            <p><strong>Affected Markets:</strong> ${eventDetails.sectors?.join(', ')}</p>
-            <p><strong>Tickers to Watch:</strong> ${eventDetails.tickers?.join(', ')}</p>
 
             <div style="margin-top: 40px; font-size: 12px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 20px;">
                 <p><em>This is an informational alert and does not guarantee market returns. Not financial advice.</em></p>

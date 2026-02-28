@@ -1,50 +1,32 @@
 import type { EventCluster } from './event';
 import { env } from '$env/dynamic/private';
+import { evaluateEvent, type DecisionEngineOutput } from './decisionEngine';
 
-export async function summarizeEvent(cluster: EventCluster): Promise<{ what_happened: string[], why_it_matters: string[], positive_impacts: string[], negative_impacts: string[], expected_frequency: string }> {
+export interface EventSummary extends DecisionEngineOutput {
+    what_happened: string[];
+    // Removed old positive/negative impacts as we now use causalLogic and structured impacts from DecisionEngine
+}
+
+export async function summarizeEvent(cluster: EventCluster): Promise<EventSummary> {
     const llmKey = env.LLM_API_KEY || process.env.LLM_API_KEY;
 
-    // Fallback template approach if no LLM configured
-    if (!llmKey) {
-        return {
-            what_happened: cluster.sources.slice(0, 3).map(s => s.title),
-            why_it_matters: [
-                `This event triggered a severity score of ${cluster.severityScore}.`,
-                `It heavily involves topics related to: ${cluster.sectors.join(', ') || 'General Markets'}`,
-                `Keep an eye on related assets as volatility may increase.`
-            ],
-            positive_impacts: [
-                `${cluster.sectors[0] || 'Defense'} sector scaling opportunities.`,
-                `Potential short-term arbitrage in related commodities.`
-            ],
-            negative_impacts: [
-                `Declining stability in core supply chains.`,
-                `Projected 15% increase in operational costs for affected regions.`
-            ],
-            expected_frequency: "High Volatility (Multi-day impact)"
-        };
-    }
+    // 1. Run the deterministic Decision Engine
+    const decisionOutput = evaluateEvent(cluster.title, cluster.sources.map(s => s.title));
 
-    // Mocking an actual LLM call for the template
-    // In a real app, this would use OpenAI or OpenRouter to digest `cluster.sources` into bullets
-    console.log('Sending to LLM for summarization...');
-    return {
-        what_happened: [
+    // 2. Generate the "What Happened" context (Simulated LLM or Fallback)
+    let what_happened: string[] = [];
+    if (!llmKey) {
+        what_happened = cluster.sources.slice(0, 3).map(s => s.title);
+    } else {
+        console.log('Sending to LLM to summarize breaking sources...');
+        what_happened = [
             `Multiple sources report significant developments regarding ${cluster.title.replace('High Activity: ', '')}.`,
             ...cluster.sources.slice(0, 2).map(s => `As noted by ${s.source}: ${s.title}`)
-        ],
-        why_it_matters: [
-            `This development could have immediate cascading effects on ${cluster.sectors.join(', ')} sectors.`,
-            `Potential regulatory or supply chain shifts are anticipated.`
-        ],
-        positive_impacts: [
-            `Accelerated funding scaling for domestic ${cluster.sectors[0] || 'Tech'} components.`,
-            `Market consolidation favoring dominant players in unaffected zones.`
-        ],
-        negative_impacts: [
-            `Disruption of key trade routes leading to margin compression.`,
-            `Estimated supply delays of 2-4 weeks pending resolution.`
-        ],
-        expected_frequency: "Persistent (Week-long disruption expected)"
+        ];
+    }
+
+    return {
+        ...decisionOutput,
+        what_happened
     };
 }

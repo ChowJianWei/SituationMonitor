@@ -224,12 +224,75 @@
                                     >
                                         {event.title}
                                     </h3>
-                                    <p
-                                        class="text-[11px] text-neutral-400 line-clamp-2 leading-relaxed"
-                                    >
-                                        {event.summary?.why_it_matters?.[0] ||
-                                            "Triggered alert threshold."}
-                                    </p>
+                                    {#if event.summary?.category}
+                                        <div
+                                            class="space-y-1.5 text-[11px] text-neutral-400 leading-relaxed bg-neutral-900/50 p-2 rounded border border-neutral-800/50 mt-3"
+                                        >
+                                            <p>
+                                                <strong class="text-neutral-300"
+                                                    >Type:</strong
+                                                >
+                                                {event.summary.category}
+                                            </p>
+                                            <p>
+                                                <strong class="text-neutral-300"
+                                                    >Impacts:</strong
+                                                >
+                                                {#each event.summary.impacts as imp, i}
+                                                    <span
+                                                        class={imp.direction ===
+                                                        "UP"
+                                                            ? "text-green-400 font-bold"
+                                                            : imp.direction ===
+                                                                "DOWN"
+                                                              ? "text-red-400 font-bold"
+                                                              : "text-yellow-400 font-bold"}
+                                                        >{imp.asset}
+                                                        {imp.direction === "UP"
+                                                            ? "↑"
+                                                            : imp.direction ===
+                                                                "DOWN"
+                                                              ? "↓"
+                                                              : "↕"}</span
+                                                    >{#if i < event.summary.impacts.length - 1}<span
+                                                            class="text-neutral-600 mx-1"
+                                                            >•</span
+                                                        >{/if}
+                                                {/each}
+                                            </p>
+                                            <p>
+                                                <strong class="text-neutral-300"
+                                                    >Backtest:</strong
+                                                >
+                                                {event.summary.backtest
+                                                    .occurrences} Cases | Win:
+                                                <span
+                                                    class="text-emerald-400 font-bold"
+                                                    >{event.summary.backtest
+                                                        .winRate}%</span
+                                                >
+                                                | 1D: {event.summary.backtest
+                                                    .avgReturn > 0
+                                                    ? "+"
+                                                    : ""}{event.summary.backtest
+                                                    .avgReturn}%
+                                            </p>
+                                            <p>
+                                                <strong class="text-neutral-300"
+                                                    >Logic:</strong
+                                                >
+                                                {event.summary.causalLogic}
+                                            </p>
+                                        </div>
+                                    {:else}
+                                        <p
+                                            class="text-[11px] text-neutral-400 line-clamp-2 leading-relaxed"
+                                        >
+                                            {event.summary
+                                                ?.why_it_matters?.[0] ||
+                                                "Triggered alert threshold."}
+                                        </p>
+                                    {/if}
                                 </a>
                             {/each}
                         {/if}

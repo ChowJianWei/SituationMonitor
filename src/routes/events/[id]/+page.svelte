@@ -103,50 +103,80 @@
                             </div>
                         </div>
 
-                        <!-- Dual Impact Columns -->
+                        <!-- Deterministic Impact & Backtesting Simulator (Phase 12) -->
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <!-- Positive Impact -->
+                            <!-- Asset Routing Map -->
                             <div
-                                class="bg-green-500/10 border border-green-500/20 p-5 rounded-xl"
+                                class="bg-neutral-900 border border-neutral-800 p-5 rounded-xl flex flex-col h-full justify-between"
                             >
-                                <h3
-                                    class="text-green-400 font-bold mb-3 flex items-center gap-2 text-sm uppercase tracking-wider"
-                                >
-                                    <svg
-                                        class="w-4 h-4"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                        ><path
-                                            stroke-linecap="round"
-                                            stroke-linejoin="round"
-                                            stroke-width="2"
-                                            d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
-                                        ></path></svg
+                                <div>
+                                    <h3
+                                        class="text-neutral-400 font-bold mb-4 flex items-center gap-2 text-sm uppercase tracking-wider"
                                     >
-                                    Scaling Focus
-                                </h3>
-                                <ul
-                                    class="space-y-2 text-sm text-green-200/90 list-disc list-inside"
-                                >
-                                    {#each event.summary?.positive_impacts || [] as item}
-                                        <li class="pl-1">{item}</li>
-                                    {:else}
-                                        <li
-                                            class="pl-1 italic opacity-50 text-xs"
+                                        <svg
+                                            class="w-4 h-4 text-blue-500"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                            ><path
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                stroke-width="2"
+                                                d="M13 10V3L4 14h7v7l9-11h-7z"
+                                            ></path></svg
                                         >
-                                            Awaiting data...
-                                        </li>
-                                    {/each}
-                                </ul>
+                                        Causal Logic & Asset Map
+                                    </h3>
+                                    <p
+                                        class="text-neutral-300 text-sm mb-4 leading-relaxed font-mono bg-black/40 p-3 rounded border border-neutral-800"
+                                    >
+                                        Logic: {event.summary?.causalLogic ||
+                                            "Awaiting calculation..."}
+                                    </p>
+                                    <ul class="space-y-2.5">
+                                        {#each event.summary?.impacts || [] as imp}
+                                            <li
+                                                class="flex items-center justify-between text-sm py-1 border-b border-neutral-800/50 last:border-0"
+                                            >
+                                                <span
+                                                    class="font-semibold text-neutral-200"
+                                                    >{imp.asset}</span
+                                                >
+                                                <span
+                                                    class="px-2 py-0.5 rounded text-xs font-bold {imp.direction ===
+                                                    'UP'
+                                                        ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+                                                        : imp.direction ===
+                                                            'DOWN'
+                                                          ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                                          : 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'}"
+                                                >
+                                                    {imp.direction}
+                                                    {imp.direction === "UP"
+                                                        ? "↑"
+                                                        : imp.direction ===
+                                                            "DOWN"
+                                                          ? "↓"
+                                                          : "↕"}
+                                                </span>
+                                            </li>
+                                        {:else}
+                                            <li
+                                                class="italic opacity-50 text-xs text-neutral-500"
+                                            >
+                                                Awaiting data...
+                                            </li>
+                                        {/each}
+                                    </ul>
+                                </div>
                             </div>
 
-                            <!-- Negative Impact -->
+                            <!-- Historical Simulator -->
                             <div
-                                class="bg-red-500/10 border border-red-500/20 p-5 rounded-xl"
+                                class="bg-blue-900/10 border border-blue-900/30 p-5 rounded-xl flex flex-col"
                             >
                                 <h3
-                                    class="text-red-400 font-bold mb-3 flex items-center gap-2 text-sm uppercase tracking-wider"
+                                    class="text-blue-400 font-bold mb-4 flex items-center gap-2 text-sm uppercase tracking-wider"
                                 >
                                     <svg
                                         class="w-4 h-4"
@@ -157,24 +187,66 @@
                                             stroke-linecap="round"
                                             stroke-linejoin="round"
                                             stroke-width="2"
-                                            d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6"
+                                            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                                         ></path></svg
                                     >
-                                    Declining Focus
+                                    Historical Backtest Simulator
                                 </h3>
-                                <ul
-                                    class="space-y-2 text-sm text-red-200/90 list-disc list-inside"
-                                >
-                                    {#each event.summary?.negative_impacts || [] as item}
-                                        <li class="pl-1">{item}</li>
-                                    {:else}
-                                        <li
-                                            class="pl-1 italic opacity-50 text-xs"
+
+                                <div class="grid grid-cols-2 gap-3 mb-4">
+                                    <div
+                                        class="bg-black/40 p-3 rounded border border-neutral-800/50 text-center"
+                                    >
+                                        <div
+                                            class="text-xs text-neutral-500 mb-1 uppercase tracking-wider font-semibold"
                                         >
-                                            Awaiting data...
-                                        </li>
-                                    {/each}
-                                </ul>
+                                            Identical Cases
+                                        </div>
+                                        <div
+                                            class="text-xl font-bold text-white"
+                                        >
+                                            {event.summary?.backtest
+                                                ?.occurrences || 0}
+                                        </div>
+                                    </div>
+                                    <div
+                                        class="bg-black/40 p-3 rounded border border-neutral-800/50 text-center"
+                                    >
+                                        <div
+                                            class="text-xs text-neutral-500 mb-1 uppercase tracking-wider font-semibold"
+                                        >
+                                            Base Win Rate
+                                        </div>
+                                        <div
+                                            class="text-xl font-bold text-emerald-400"
+                                        >
+                                            {event.summary?.backtest?.winRate ||
+                                                0}%
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div
+                                    class="bg-black/40 p-4 rounded border border-neutral-800/50 text-center mt-auto"
+                                >
+                                    <div
+                                        class="text-xs text-neutral-500 mb-2 uppercase tracking-wider font-semibold"
+                                    >
+                                        Avg Simulated Return ({event.summary
+                                            ?.backtest?.timeframe || "1-Day"})
+                                    </div>
+                                    <div
+                                        class="text-3xl font-black {event
+                                            .summary?.backtest?.avgReturn > 0
+                                            ? 'text-green-500'
+                                            : 'text-red-500'}"
+                                    >
+                                        {event.summary?.backtest?.avgReturn > 0
+                                            ? "+"
+                                            : ""}{event.summary?.backtest
+                                            ?.avgReturn || 0}%
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </section>

@@ -57,7 +57,7 @@ export async function POST({ request, url }) {
                 .insert({
                     title: cluster.title,
                     summary,
-                    severity: cluster.severityScore
+                    severity: summary.confidenceScore
                 })
                 .select()
                 .single();
