@@ -29,6 +29,7 @@
 	"dependencies": {
 		"@supabase/supabase-js": "^2.98.0",
 		"d3": "^7.9.0",
+		"dotenv": "^17.3.1",
 		"resend": "^6.9.3",
 		"topojson-client": "^3.1.0"
 	}
