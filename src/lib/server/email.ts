@@ -7,7 +7,7 @@ export const resend = resendApiKey ? new Resend(resendApiKey) : null;
 
 // Base sender address
 // Using Resend's default onboarding address for testing purposes until domain is verified.
-export const SENDER_EMAIL = 'onboarding@resend.dev';
+export const SENDER_EMAIL = 'alerts@situationmonitor.asia';
 
 export async function sendConfirmationEmail(email: string, token: string, baseUrl: string) {
     if (!resend) {
