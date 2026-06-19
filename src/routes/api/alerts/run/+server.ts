@@ -5,6 +5,7 @@ import { fetchBreakingCandidates } from '$lib/api/news';
 import { fetchMarketSnapshot } from '$lib/api/markets';
 import { detectAndClusterEvents } from '$lib/analysis/event';
 import { summarizeEvent } from '$lib/analysis/summarize';
+import { getOptionsContext } from '$lib/services/quant';
 
 export async function POST({ request, url }) {
     // Basic protection (e.g., matching a cron secret)
@@ -51,6 +52,11 @@ export async function POST({ request, url }) {
             const marketSnapshot = await fetchMarketSnapshot(cluster.tickers);
             const summary = await summarizeEvent(cluster);
 
+            // 3b. Options context for each impacted ticker (non-blocking)
+            const optionsContexts = await Promise.all(
+                cluster.tickers.map((t: string) => getOptionsContext(t))
+            );
+
             // 4. Store in DB
             const { data: newEvent, error: eventErr } = await supabaseAdmin
                 .from('events')
@@ -85,6 +91,34 @@ export async function POST({ request, url }) {
                 market_snapshot: marketSnapshot
             });
 
+            // Store per-ticker options context
+            const optionsRows = optionsContexts
+                .filter(Boolean)
+                .map((ctx) => ({
+                    event_id: newEvent.id,
+                    ticker: ctx!.ticker,
+                    spot: ctx!.spot,
+                    expiry: ctx!.expiry,
+                    dte: ctx!.dte,
+                    atm_iv: ctx!.atm_iv,
+                    implied_move_pct: ctx!.implied_move_pct,
+                    delta: ctx!.greeks.delta,
+                    gamma: ctx!.greeks.gamma,
+                    theta: ctx!.greeks.theta,
+                    vega: ctx!.greeks.vega,
+                    risk_free_rate: ctx!.risk_free_rate,
+                }));
+            if (optionsRows.length > 0) {
+                await supabaseAdmin.from('event_options_context').insert(optionsRows);
+            }
+
+            // Build implied-move lines for email body
+            const impliedMoveLines = optionsContexts
+                .filter(Boolean)
+                .map((ctx) =>
+                    `${ctx!.ticker}: options imply ±${ctx!.implied_move_pct.toFixed(1)}% move by ${ctx!.expiry} (ATM IV ${(ctx!.atm_iv * 100).toFixed(1)}%)`
+                );
+
             // 5. Email all confirmed subscribers
             if (subscribers && subscribers.length > 0) {
                 for (const sub of subscribers) {
@@ -94,7 +128,8 @@ export async function POST({ request, url }) {
                             title: cluster.title,
                             summary,
                             sectors: cluster.sectors,
-                            tickers: cluster.tickers
+                            tickers: cluster.tickers,
+                            impliedMoveLines,
                         },
                         sub.unsub_token,
                         url.origin

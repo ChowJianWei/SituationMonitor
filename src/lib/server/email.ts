@@ -71,6 +71,13 @@ export async function sendAlertEmail(email: string, eventDetails: any, unsubToke
                 <ul>
                     ${eventDetails.summary.impacts.map((imp: any) => `<li><strong>${imp.asset}</strong>: <span style="color: ${imp.direction === 'UP' ? '#059669' : '#dc2626'}">${imp.direction}</span></li>`).join('')}
                 </ul>
+
+                ${eventDetails.impliedMoveLines?.length > 0 ? `
+                <h4 style="margin-top: 0;">Options-Implied Moves</h4>
+                <ul style="font-family: monospace; font-size: 13px;">
+                    ${eventDetails.impliedMoveLines.map((l: string) => `<li>${l}</li>`).join('')}
+                </ul>
+                ` : ''}
             </div>
 
             <div style="margin-top: 40px; font-size: 12px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 20px;">
