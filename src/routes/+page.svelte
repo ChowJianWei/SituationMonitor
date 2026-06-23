@@ -91,6 +91,12 @@
                 >
                     Actuarial View &rarr;
                 </a>
+                <a
+                    href="/quant"
+                    class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded text-[10px] font-bold uppercase tracking-wider hover:bg-blue-500/20 transition"
+                >
+                    Quant Desk &rarr;
+                </a>
             </div>
             <div class="flex space-x-6 text-sm overflow-x-auto no-scrollbar">
                 {#each Object.entries(marketSnapshot) as [ticker, md]}
