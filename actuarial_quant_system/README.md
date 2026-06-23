@@ -88,6 +88,31 @@ journalctl -u actuarial-trading-engine -f
 `NEXT_PUBLIC_QUANT_API=http://127.0.0.1:8200` and render `<Dashboard />`.
 Requires `lucide-react` and Tailwind.
 
+## Going live — sandbox first (Tradier)
+
+The engine ships in `EXECUTION_MODE=paper` (internal simulator). To route the
+underwriting cycle through a real broker API, use **Tradier sandbox** — a paper
+environment with a real API, so orders are genuine API calls against fake money.
+
+1. Create a free account at [tradier.com](https://tradier.com) → Dashboard →
+   **API Access** → copy your **Sandbox** access token and account id (`VA...`).
+   Create the token **without** withdrawal scope.
+2. Set in `.env`:
+   ```
+   EXECUTION_MODE="tradier_sandbox"
+   TRADIER_ENV="sandbox"
+   TRADIER_ACCESS_TOKEN="<your sandbox token>"
+   TRADIER_ACCOUNT_ID="<VA...>"
+   ```
+3. Restart the engine and check `GET /api/v1/broker/status` → `valid: true`.
+   `GET /api/v1/broker/quote/AAPL` and `/broker/balances` confirm read access.
+4. The autonomous cycle now places **real sandbox orders** (still risk-gated).
+
+**Funding is manual and external.** You fund the Tradier account yourself through
+your own bank; this system has no bank/ACH/SWIFT access and cannot pull funds.
+Sandbox needs no funding at all. Only move to `TRADIER_ENV=production` after a
+validated paper/sandbox track record.
+
 ## Three independent safety layers (why it can't move your money)
 
 1. **API-key scoping** — keys are minted READ (≤ TRADE) only; WITHDRAW disabled

@@ -34,6 +34,8 @@ from ..data_pipeline.stream_bus import StreamBus
 from ..execution.broker_connector import BrokerConnector, BrokerCredentials, KeyScope
 from ..execution.paper_engine import PaperExecutionEngine
 from ..execution.strategy_selector import select_strategy
+from ..execution.tradier_connector import TradierConnector
+from ..execution.tradier_engine import TradierExecutionEngine
 from ..models.actuarial_engine import (
     TradeMetrics,
     compute_loss_reserve,
@@ -74,6 +76,19 @@ broker = BrokerConnector(
     BrokerCredentials(settings.broker_api_key, settings.broker_api_secret, KeyScope.READ_ONLY),
     paper_trading_only=settings.paper_trading_only,
 )
+
+# Optional real broker (Tradier). Only built when a token is configured.
+tradier: Optional[TradierConnector] = None
+if settings.tradier_access_token and settings.tradier_account_id:
+    tradier = TradierConnector(settings.tradier_access_token,
+                               settings.tradier_account_id, settings.tradier_env)
+
+
+def _executor():
+    """Pick the execution engine: Tradier when configured + selected, else paper."""
+    if settings.execution_mode.startswith("tradier") and tradier is not None:
+        return TradierExecutionEngine(tradier, db, state)
+    return paper_engine
 
 # Demo universe: (symbol, spot, realized-vol seed, IV richness, stress_at).
 UNIVERSE = [
@@ -156,7 +171,7 @@ async def run_underwriting_cycle() -> dict:
             frozen_reserve_usd=await state.total_locked_reserves(),
             start_of_day_equity_usd=account.start_of_day_equity_usd,
         )
-        result = await paper_engine.execute(proposal, account, ref_price=spot)
+        result = await _executor().execute(proposal, account, ref_price=spot)
         if result.executed and proposal.side != "SELL" or result.verdict == "APPROVED":
             gross += proposal.notional_usd
         fills.append({**result.as_dict(), "regime": regime.current_regime,
@@ -220,6 +235,8 @@ async def _shutdown() -> None:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
     await broker.aclose()
+    if tradier is not None:
+        await tradier.aclose()
     await db.close()
     await bus.aclose()
 
@@ -247,8 +264,34 @@ class OnboardingRequest(BaseModel):
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok", "paper_trading_only": settings.paper_trading_only,
+            "execution_mode": settings.execution_mode,
+            "tradier_configured": tradier is not None,
             "kill_switch_engaged": kill_switch_status(),
             "db_live": db.live, "ts": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/api/v1/broker/status")
+async def broker_status() -> dict:
+    if tradier is None:
+        return {"configured": False, "execution_mode": settings.execution_mode,
+                "hint": "Set TRADIER_ACCESS_TOKEN + TRADIER_ACCOUNT_ID and "
+                        "EXECUTION_MODE=tradier_sandbox, then restart."}
+    return {"configured": True, "execution_mode": settings.execution_mode,
+            "env": settings.tradier_env, **(await tradier.validate())}
+
+
+@app.get("/api/v1/broker/quote/{symbol}")
+async def broker_quote(symbol: str) -> dict:
+    if tradier is None:
+        return {"error": "Tradier not configured"}
+    return await tradier.get_quote(symbol)
+
+
+@app.get("/api/v1/broker/balances")
+async def broker_balances() -> dict:
+    if tradier is None:
+        return {"error": "Tradier not configured"}
+    return await tradier.get_balances()
 
 
 @app.get("/api/v1/regime")

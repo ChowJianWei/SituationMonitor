@@ -40,6 +40,13 @@ class Settings:
     broker_api_key: str = os.getenv("BROKER_API_KEY", "")
     broker_api_secret: str = os.getenv("BROKER_API_SECRET", "")
 
+    # --- Tradier (equity options) ---
+    # EXECUTION_MODE: "paper" (internal simulator) or "tradier_sandbox"/"tradier_live".
+    execution_mode: str = os.getenv("EXECUTION_MODE", "paper")
+    tradier_env: str = os.getenv("TRADIER_ENV", "sandbox")          # sandbox | production
+    tradier_access_token: str = os.getenv("TRADIER_ACCESS_TOKEN", "")
+    tradier_account_id: str = os.getenv("TRADIER_ACCOUNT_ID", "")
+
     # --- safety posture ---
     # Defaults to True: the engine is read-only/informational until a human
     # explicitly flips this off AND the key carries trade scope.
