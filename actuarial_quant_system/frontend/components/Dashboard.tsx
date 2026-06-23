@@ -120,6 +120,32 @@ function OnboardingModal({ onClose }: { onClose: () => void }) {
   const [apiKey, setApiKey] = useState("");
   const [secret, setSecret] = useState("");
   const [deposit, setDeposit] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+
+  async function handleActivate() {
+    setStatus("Validating…");
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/onboarding/validate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: "binance",
+          api_key: apiKey,
+          api_secret: secret,
+          allocation_usd: Number(deposit) || 0,
+        }),
+      });
+      const data = await res.json();
+      if (data?.validation?.valid) {
+        setStatus("Connected (paper). Withdrawals disabled. Activating engine…");
+        setTimeout(onClose, 800);
+      } else {
+        setStatus("Validation failed — check your keys.");
+      }
+    } catch {
+      setStatus("Backend unreachable. Is the engine running on :8200?");
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
@@ -164,11 +190,12 @@ function OnboardingModal({ onClose }: { onClose: () => void }) {
         />
 
         <button
-          onClick={onClose}
+          onClick={handleActivate}
           className="w-full rounded-lg bg-emerald-600 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500"
         >
           Start Underwriting (Paper Mode)
         </button>
+        {status && <p className="mt-3 text-center text-xs text-gray-400">{status}</p>}
       </div>
     </div>
   );
@@ -310,6 +337,17 @@ function AllocationTab({ data }: { data: Allocation[] }) {
 // TAB 3 — Global Intelligence & Macro Propagation
 // ---------------------------------------------------------------------------
 function IntelligenceTab() {
+  const [links, setLinks] = useState<
+    { source: string; channel: string; target: string; impact_pct: number; credibility: number }[]
+  >([]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/v1/macro-propagation`)
+      .then((r) => r.json())
+      .then((d) => setLinks(d.links ?? []))
+      .catch(() => setLinks([]));
+  }, []);
+
   const channels = [
     { node: "Central Bank Rate Δ", color: "text-amber-400", icon: <Globe2 size={18} /> },
     { node: "Funding & Carry Costs", color: "text-sky-400", icon: <Waves size={18} /> },
@@ -341,6 +379,31 @@ function IntelligenceTab() {
           ))}
         </div>
       </div>
+
+      {links.length > 0 && (
+        <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-5">
+          <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-gray-300">
+            <Activity size={16} /> Fitted Propagation — VAR(1) Impulse Response
+          </h4>
+          <ul className="space-y-2 text-sm">
+            {links.map((l, i) => (
+              <li key={i} className="flex flex-wrap items-center gap-2 text-gray-300">
+                <span className="font-mono text-xs text-amber-300">{l.source}</span>
+                <span className="text-gray-600">→</span>
+                <span className="font-mono text-xs text-sky-300">{l.channel}</span>
+                <span className="text-gray-600">→</span>
+                <span className="font-mono text-xs text-emerald-300">{l.target}</span>
+                <span className="ml-auto text-xs text-gray-400">
+                  peak {l.impact_pct.toFixed(1)} ·{" "}
+                  <span className={l.credibility > 0.7 ? "text-emerald-400" : "text-amber-400"}>
+                    credibility {(l.credibility * 100).toFixed(0)}%
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="overflow-hidden rounded-xl border border-gray-800">
         <table className="w-full text-left text-sm">

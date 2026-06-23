@@ -49,5 +49,11 @@ class Settings:
     risk_free_series: str = os.getenv("FRED_SERIES", "DGS3MO")
     fred_api_key: str = os.getenv("FRED_API_KEY", "")
 
+    # --- autonomous underwriting cycle ---
+    # Seconds between paper underwriting cycles run by the background daemon.
+    cycle_interval_seconds: int = int(os.getenv("CYCLE_INTERVAL_SECONDS", "60"))
+    # Starting equity used to seed a fresh paper account on first boot.
+    seed_equity_usd: float = float(os.getenv("SEED_EQUITY_USD", "180000"))
+
 
 settings = Settings()

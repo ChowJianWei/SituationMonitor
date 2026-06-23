@@ -45,11 +45,33 @@ Then: `http://127.0.0.1:8200/docs`
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/v1/daily-briefing` | Tab-1 executive report payload |
-| `GET /api/v1/fund-allocation` | Tab-2 per-asset yield/reserve/hedge layers |
+| `GET /api/v1/daily-briefing` | Tab-1 executive report payload (persisted) |
+| `GET /api/v1/fund-allocation` | Tab-2 layers, aggregated from open positions |
 | `GET /api/v1/regime` | GARCH + HMM regime snapshot |
+| `GET /api/v1/signals` | Variance Risk Premium + underwriting signal per asset |
 | `GET /api/v1/risk/ruin` | Cramér-Lundberg ruin probability |
+| `GET /api/v1/macro-propagation` | SVAR / VAR(1) shock propagation + credibility (Tab 3) |
+| `GET /api/v1/trades` | Recent paper fills (audit trail) |
+| `POST /api/v1/cycle/run` | Trigger one paper underwriting cycle manually |
+| `POST /api/v1/onboarding/validate` | Validate API keys (paper-safe), seed allocation |
 | `POST /api/v1/reallocate` | Internal reallocation / deposit advice |
+
+### Autonomous paper underwriting
+
+On boot the daemon starts a background loop that, every `CYCLE_INTERVAL_SECONDS`,
+runs the full pipeline per asset: **regime (HMM) → VRP signal → strategy structure
+→ hardcoded risk gate → simulated fill → loss-reserve lock (Redis) → persist
+(Postgres) → audit**. Every fill is paper-only; there is no live-order path.
+State is restored from Redis on restart, so survival math survives a reboot.
+
+### Frontend (Next.js)
+
+```bash
+cd frontend
+cp .env.local.example .env.local      # point NEXT_PUBLIC_QUANT_API at the engine
+npm install
+npm run dev                           # http://localhost:3000
+```
 
 ## Run the daemon (Linux, 24/7)
 

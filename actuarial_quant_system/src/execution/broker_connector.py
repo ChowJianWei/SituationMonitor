@@ -148,6 +148,29 @@ class BrokerConnector:
         decision.reasons.append("Order forwarded to venue (trade-scoped key).")
         return decision
 
+    # ----- onboarding helpers (read-only) -------------------------------
+    async def validate_credentials(self) -> dict:
+        """
+        Used by the onboarding wizard to confirm a key works and to surface its
+        scope. Paper-safe: in paper mode we never hit a live venue. We always
+        report withdrawal as disabled because this service holds no such key.
+        """
+        if self._paper_trading_only:
+            return {"valid": True, "scope": self._creds.scope.value,
+                    "paper": True, "withdrawal_enabled": False}
+        try:
+            await self.get_positions()
+            return {"valid": True, "scope": self._creds.scope.value,
+                    "paper": False, "withdrawal_enabled": False}
+        except Exception as exc:  # pragma: no cover
+            return {"valid": False, "error": str(exc), "withdrawal_enabled": False}
+
+    async def get_balances(self, seed_equity: float = 0.0) -> dict:
+        """Read available balances for the allocation wizard. Paper-aware."""
+        if self._paper_trading_only:
+            return {"USD": seed_equity, "paper": True}
+        return await self.get_positions()
+
     # NOTE: There is intentionally NO withdraw / transfer / payout method.
     #       Its absence is a security control, not an oversight.
 

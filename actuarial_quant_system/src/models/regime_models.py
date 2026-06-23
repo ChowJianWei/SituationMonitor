@@ -52,7 +52,9 @@ def fit_garch(returns: np.ndarray) -> GarchResult:
     if r.size < 50:
         raise ValueError("Need >= 50 returns to fit GARCH(1,1).")
 
-    r = r - r.mean()                 # work on demeaned residuals
+    # Rescale to percentage points for numerical conditioning; undone at the end.
+    scale = 100.0
+    r = (r - r.mean()) * scale
     var0 = float(np.var(r))
 
     def neg_loglik(theta: np.ndarray) -> float:
@@ -89,13 +91,13 @@ def fit_garch(returns: np.ndarray) -> GarchResult:
     forecast_var = omega + alpha * r[-1] ** 2 + beta * sigma2[-1]
 
     return GarchResult(
-        omega=float(omega),
+        omega=float(omega) / scale ** 2,
         alpha=float(alpha),
         beta=float(beta),
         persistence=float(persistence),
-        long_run_vol=float(np.sqrt(long_run_var)),
-        current_vol=float(np.sqrt(sigma2[-1])),
-        forecast_vol=float(np.sqrt(forecast_var)),
+        long_run_vol=float(np.sqrt(long_run_var)) / scale,
+        current_vol=float(np.sqrt(sigma2[-1])) / scale,
+        forecast_vol=float(np.sqrt(forecast_var)) / scale,
         converged=bool(res.success),
     )
 
@@ -133,8 +135,8 @@ class RegimeResult:
 class GaussianHMM:
     """Univariate Gaussian-emission HMM fitted with scaled Baum-Welch."""
 
-    def __init__(self, n_states: int = 3, n_iter: int = 60,
-                 tol: float = 1e-4, seed: int = 7):
+    def __init__(self, n_states: int = 3, n_iter: int = 150,
+                 tol: float = 1e-3, seed: int = 7):
         self.k = n_states
         self.n_iter = n_iter
         self.tol = tol
@@ -224,7 +226,7 @@ class GaussianHMM:
             self.var = self.var / np.maximum(gsum, 1e-300)
             self.var = np.maximum(self.var, 1e-10)
 
-            if abs(ll - prev_ll) < self.tol:
+            if abs(ll - prev_ll) < self.tol * (1.0 + abs(ll)):
                 self.converged_ = True
                 break
             prev_ll = ll
@@ -304,3 +306,23 @@ def detect_regime(returns: np.ndarray, n_states: int = 3) -> RegimeResult:
     """Convenience wrapper: fit HMM and return a labelled regime snapshot."""
     hmm = GaussianHMM(n_states=n_states).fit(returns)
     return hmm.describe(returns)
+
+
+def simulate_clustered_returns(n: int = 1500, seed: int = 1,
+                               stress_at: float | None = 0.85) -> np.ndarray:
+    """
+    Generate a realistic return series with genuine volatility CLUSTERING
+    (a GARCH(1,1) data-generating process) plus an optional late tail-stress
+    burst. Used to seed demos so GARCH/HMM fits converge to meaningful regimes
+    instead of collapsing on i.i.d. noise.
+    """
+    rng = np.random.default_rng(seed)
+    omega, alpha, beta = 2e-6, 0.09, 0.89
+    r = np.zeros(n)
+    sigma2 = np.full(n, omega / (1.0 - alpha - beta))
+    stress_idx = int(n * stress_at) if stress_at is not None else n + 1
+    for t in range(1, n):
+        sigma2[t] = omega + alpha * r[t - 1] ** 2 + beta * sigma2[t - 1]
+        shock = 3.0 if stress_idx <= t < stress_idx + 30 else 1.0  # tail burst
+        r[t] = rng.normal(0.0004, np.sqrt(sigma2[t]) * shock)
+    return r

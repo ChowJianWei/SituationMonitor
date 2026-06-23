@@ -16,3 +16,6 @@ websockets
 
 # --- historical log DB (PostgreSQL) ---
 asyncpg
+
+# --- tests ---
+pytest
