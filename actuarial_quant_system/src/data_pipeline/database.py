@@ -78,6 +78,7 @@ class Database:
 
     async def save_trade(self, trade: dict) -> None:
         if self._pool is None:
+            trade.setdefault("executed_at", datetime.now(timezone.utc).isoformat())
             self._mem["trades"].append(trade)
             return
         async with self._pool.acquire() as conn:

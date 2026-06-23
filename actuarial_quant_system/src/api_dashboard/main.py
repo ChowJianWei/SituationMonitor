@@ -367,6 +367,65 @@ async def trades(limit: int = 50) -> dict:
     return {"trades": await db.get_recent_trades(limit)}
 
 
+# Estimated paper premium captured per short-vol fill (fraction of notional).
+# Labelled "estimated" everywhere: paper PnL is modelled, not marked-to-market.
+PAPER_PREMIUM_RATE = 0.006
+
+
+@app.get("/api/v1/performance")
+async def performance() -> dict:
+    """
+    Tracking metrics for the Performance & Activity tab: estimated paper equity
+    curve, aggregate stats, per-asset breakdown and the recent activity feed.
+    """
+    all_trades = await db.get_recent_trades(500)
+    approved = [t for t in all_trades if t.get("risk_verdict") == "APPROVED"]
+    rejected = [t for t in all_trades if t.get("risk_verdict") == "REJECTED"]
+    reserves = await state.total_locked_reserves()
+    seed = settings.seed_equity_usd
+
+    total_notional = total_costs = total_premium = 0.0
+    curve = [seed]
+    by_asset: dict[str, dict] = {}
+
+    # `get_recent_trades` is newest-first; walk oldest-first for the curve.
+    for t in reversed(approved):
+        notional = float(t["notional_usd"])
+        cost = float(t.get("fee_usd", 0) or 0) + float(t.get("slippage_usd", 0) or 0)
+        premium = notional * PAPER_PREMIUM_RATE if t["structure"] in ("SHORT_PUT", "IRON_CONDOR") else 0.0
+        curve.append(round(curve[-1] + premium - cost, 2))
+        total_notional += notional
+        total_costs += cost
+        total_premium += premium
+        a = by_asset.setdefault(t["symbol"], {"fills": 0, "notional_usd": 0.0,
+                                              "premium_usd": 0.0, "costs_usd": 0.0})
+        a["fills"] += 1
+        a["notional_usd"] += notional
+        a["premium_usd"] += premium
+        a["costs_usd"] += cost
+
+    est_equity = curve[-1]
+    est_pnl = est_equity - seed
+    return {
+        "estimated": True,
+        "note": "Paper / estimated PnL — short-vol premium modelled, not marked-to-market.",
+        "seed_equity_usd": round(seed, 2),
+        "estimated_equity_usd": round(est_equity, 2),
+        "estimated_pnl_usd": round(est_pnl, 2),
+        "estimated_return_pct": round(100 * est_pnl / seed, 3) if seed else 0.0,
+        "total_paper_fills": len(approved),
+        "rejected_by_gate": len(rejected),
+        "total_notional_underwritten_usd": round(total_notional, 2),
+        "total_costs_usd": round(total_costs, 2),
+        "estimated_premium_collected_usd": round(total_premium, 2),
+        "reserves_locked_usd": round(reserves, 2),
+        "equity_curve": curve,
+        "per_asset": [{"asset": k, **{kk: round(vv, 2) if isinstance(vv, float) else vv
+                                      for kk, vv in v.items()}} for k, v in by_asset.items()],
+        "recent_activity": all_trades[:25],
+    }
+
+
 @app.post("/api/v1/cycle/run")
 async def cycle_run() -> dict:
     """Manually trigger one paper underwriting cycle (also runs on a timer)."""

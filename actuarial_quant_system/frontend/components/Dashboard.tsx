@@ -21,8 +21,11 @@ import {
   Coins,
   Gauge,
   Globe2,
+  History,
   KeyRound,
   Layers,
+  LineChart,
+  Receipt,
   ShieldCheck,
   TrendingUp,
   Waves,
@@ -33,7 +36,7 @@ import {
 const API_BASE =
   process.env.NEXT_PUBLIC_QUANT_API ?? "http://127.0.0.1:8200";
 
-type TabKey = "briefing" | "allocation" | "intelligence";
+type TabKey = "briefing" | "allocation" | "performance" | "intelligence";
 
 interface Briefing {
   as_of: string;
@@ -334,7 +337,160 @@ function AllocationTab({ data }: { data: Allocation[] }) {
 }
 
 // ---------------------------------------------------------------------------
-// TAB 3 — Global Intelligence & Macro Propagation
+// TAB 3 — Performance & Activity (trade / investment tracking)
+// ---------------------------------------------------------------------------
+interface Performance {
+  estimated: boolean;
+  note: string;
+  seed_equity_usd: number;
+  estimated_equity_usd: number;
+  estimated_pnl_usd: number;
+  estimated_return_pct: number;
+  total_paper_fills: number;
+  rejected_by_gate: number;
+  total_notional_underwritten_usd: number;
+  total_costs_usd: number;
+  estimated_premium_collected_usd: number;
+  reserves_locked_usd: number;
+  equity_curve: number[];
+  per_asset: { asset: string; fills: number; notional_usd: number; premium_usd: number; costs_usd: number }[];
+  recent_activity: any[];
+}
+
+function Sparkline({ data }: { data: number[] }) {
+  if (data.length < 2) return <div className="h-[120px]" />;
+  const w = 600, h = 120, pad = 8;
+  const min = Math.min(...data), max = Math.max(...data);
+  const span = max - min || 1;
+  const pts = data.map((v, i) => {
+    const x = pad + (i / (data.length - 1)) * (w - 2 * pad);
+    const y = h - pad - ((v - min) / span) * (h - 2 * pad);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const up = data[data.length - 1] >= data[0];
+  const color = up ? "#10b981" : "#ef4444";
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="w-full">
+      <polyline fill="none" stroke={color} strokeWidth="2" points={pts.join(" ")} />
+    </svg>
+  );
+}
+
+function PerformanceTab() {
+  const [perf, setPerf] = useState<Performance | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = () =>
+    fetch(`${API_BASE}/api/v1/performance`).then((r) => r.json()).then(setPerf).catch(() => setPerf(null));
+  useEffect(() => { load(); }, []);
+
+  async function runCycle() {
+    setBusy(true);
+    await fetch(`${API_BASE}/api/v1/cycle/run`, { method: "POST" }).catch(() => {});
+    await load();
+    setBusy(false);
+  }
+
+  if (!perf) return <p className="text-gray-500">Loading performance… (is the engine running on :8200?)</p>;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-amber-300/80">{perf.note}</p>
+        <button
+          onClick={runCycle}
+          disabled={busy}
+          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+        >
+          {busy ? "Running…" : "Run underwriting cycle"}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard icon={<LineChart size={16} />} label="Estimated Equity" value={fmtUsd(perf.estimated_equity_usd)} />
+        <StatCard
+          icon={<TrendingUp size={16} />}
+          label="Estimated P&L"
+          value={`${perf.estimated_pnl_usd >= 0 ? "+" : ""}${fmtUsd(perf.estimated_pnl_usd)}`}
+          tone={perf.estimated_pnl_usd >= 0 ? "good" : "bad"}
+        />
+        <StatCard icon={<Receipt size={16} />} label="Paper Fills" value={`${perf.total_paper_fills}`} />
+        <StatCard
+          icon={<ShieldCheck size={16} />}
+          label="Rejected by Gate"
+          value={`${perf.rejected_by_gate}`}
+          tone={perf.rejected_by_gate > 0 ? "bad" : "neutral"}
+        />
+      </div>
+
+      <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-5">
+        <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-gray-300">
+          <LineChart size={16} /> Estimated Paper Equity Curve
+        </h4>
+        <Sparkline data={perf.equity_curve} />
+        <div className="mt-2 flex flex-wrap justify-between gap-2 text-xs text-gray-500">
+          <span>Premium collected: <span className="text-emerald-400">{fmtUsd(perf.estimated_premium_collected_usd)}</span></span>
+          <span>Costs: <span className="text-red-400">{fmtUsd(perf.total_costs_usd)}</span></span>
+          <span>Reserves locked: <span className="text-amber-400">{fmtUsd(perf.reserves_locked_usd)}</span></span>
+        </div>
+      </div>
+
+      {perf.per_asset.length > 0 && (
+        <div className="overflow-hidden rounded-xl border border-gray-800">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-gray-900 text-gray-400">
+              <tr>
+                <th className="px-4 py-3 font-medium">Asset</th>
+                <th className="px-4 py-3 font-medium">Fills</th>
+                <th className="px-4 py-3 font-medium">Notional</th>
+                <th className="px-4 py-3 font-medium">Est. Premium</th>
+                <th className="px-4 py-3 font-medium">Costs</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-800 bg-gray-900/40">
+              {perf.per_asset.map((a) => (
+                <tr key={a.asset}>
+                  <td className="px-4 py-3 font-semibold text-white">{a.asset}</td>
+                  <td className="px-4 py-3 text-gray-300">{a.fills}</td>
+                  <td className="px-4 py-3 text-gray-300">{fmtUsd(a.notional_usd)}</td>
+                  <td className="px-4 py-3 text-emerald-400">{fmtUsd(a.premium_usd)}</td>
+                  <td className="px-4 py-3 text-red-400">{fmtUsd(a.costs_usd)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-5">
+        <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-gray-300">
+          <History size={16} /> Activity Feed
+        </h4>
+        {perf.recent_activity.length === 0 ? (
+          <p className="text-sm text-gray-500">No fills yet — click “Run underwriting cycle”.</p>
+        ) : (
+          <ul className="space-y-2">
+            {perf.recent_activity.map((t, i) => (
+              <li key={i} className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-800 bg-gray-950 px-3 py-2 text-sm">
+                <span className={`rounded px-2 py-0.5 text-xs font-semibold ${t.risk_verdict === "APPROVED" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
+                  {t.risk_verdict}
+                </span>
+                <span className="font-semibold text-white">{t.symbol}</span>
+                <span className="text-gray-400">{t.structure}</span>
+                <span className={t.side === "SELL" ? "text-amber-400" : "text-sky-400"}>{t.side}</span>
+                <span className="text-gray-300">{fmtUsd(Number(t.notional_usd))}</span>
+                <span className="ml-auto truncate text-xs text-gray-500">{t.rationale}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TAB 4 — Global Intelligence & Macro Propagation
 // ---------------------------------------------------------------------------
 function IntelligenceTab() {
   const [links, setLinks] = useState<
@@ -459,6 +615,7 @@ export default function Dashboard() {
     () => [
       { key: "briefing" as const, label: "Daily Briefing", icon: <Gauge size={16} /> },
       { key: "allocation" as const, label: "Fund Allocation", icon: <Layers size={16} /> },
+      { key: "performance" as const, label: "Performance", icon: <LineChart size={16} /> },
       { key: "intelligence" as const, label: "Global Intelligence", icon: <Globe2 size={16} /> },
     ],
     []
@@ -503,6 +660,7 @@ export default function Dashboard() {
       <main>
         {tab === "briefing" && <BriefingTab data={briefing} />}
         {tab === "allocation" && <AllocationTab data={allocations} />}
+        {tab === "performance" && <PerformanceTab />}
         {tab === "intelligence" && <IntelligenceTab />}
       </main>
     </div>
