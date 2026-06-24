@@ -88,6 +88,34 @@ journalctl -u actuarial-trading-engine -f
 `NEXT_PUBLIC_QUANT_API=http://127.0.0.1:8200` and render `<Dashboard />`.
 Requires `lucide-react` and Tailwind.
 
+## Deploy to the cloud (so your live website shows data)
+
+The engine can't run on Vercel (native deps + a 24/7 loop), so it deploys as its
+own container. A `Dockerfile` + `render.yaml` are included. Pick one host:
+
+**Railway (easiest):**
+1. [railway.app](https://railway.app) → New Project → Deploy from GitHub repo.
+2. In the service settings set **Root Directory = `actuarial_quant_system`**
+   (Railway auto-detects the Dockerfile there).
+3. Deploy. Copy the generated public URL, e.g. `https://<name>.up.railway.app`.
+4. Hit `https://<name>.up.railway.app/health` → should return `{"status":"ok"}`.
+
+**Render (blueprint):**
+1. [render.com](https://render.com) → New → Blueprint → pick this repo.
+   Render reads `actuarial_quant_system/render.yaml`.
+2. Deploy, then check `<your-render-url>/health`.
+
+**Then point your SvelteKit site at it.** In the Vercel project for
+Situation-Monitor, add an env var:
+```
+ACTUARIAL_API_URL = https://<your-engine-url>
+```
+Redeploy the site. The `/quant` page flips from "Engine Offline" to live data.
+
+> Stays in `PAPER_TRADING_ONLY=true` / `EXECUTION_MODE=paper` by default — pure
+> paper, zero risk. Attach a Render/Railway Postgres + Redis and set
+> `POSTGRES_DSN` / `REDIS_URL` to get durable history + reboot-safe reserves.
+
 ## Going live — sandbox first (Tradier)
 
 The engine ships in `EXECUTION_MODE=paper` (internal simulator). To route the
