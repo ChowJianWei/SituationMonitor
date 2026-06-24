@@ -13,6 +13,48 @@
     let loading = $state(true);
     let showGlossary = $state(false);
 
+    // Add money / withdraw (paper)
+    let showMoney = $state(false);
+    let moneyKind = $state<"deposit" | "withdraw">("deposit");
+    let moneyAmount = $state("");
+    let moneyMsg = $state("");
+    let moneyBusy = $state(false);
+
+    function openMoney(kind: "deposit" | "withdraw") {
+        moneyKind = kind;
+        moneyAmount = "";
+        moneyMsg = "";
+        showMoney = true;
+    }
+
+    async function submitMoney() {
+        const amt = Number(moneyAmount);
+        if (!amt || amt <= 0) {
+            moneyMsg = "Enter a positive amount.";
+            return;
+        }
+        moneyBusy = true;
+        moneyMsg = "";
+        try {
+            const r = await fetch(`/api/quant/account/${moneyKind}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ amount_usd: amt }),
+            });
+            const d = await r.json();
+            if (d.ok) {
+                showMoney = false;
+                await loadAll();
+            } else {
+                moneyMsg = d.error || "Something went wrong.";
+            }
+        } catch {
+            moneyMsg = "Couldn't reach the engine.";
+        } finally {
+            moneyBusy = false;
+        }
+    }
+
     async function get(path: string) {
         const r = await fetch(`/api/quant/${path}`);
         if (!r.ok) throw new Error(`${path} ${r.status}`);
@@ -250,6 +292,28 @@
             {#if briefing}
                 {@const hw = healthWord(briefing.surplus_health_index)}
                 {@const reg = regimePlain(briefing.regime)}
+                <div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-800 bg-neutral-950 p-4">
+                    <div>
+                        <div class="text-[10px] uppercase tracking-wider text-neutral-500">
+                            Money you can deploy (free cash)
+                        </div>
+                        <div class="text-xl font-semibold text-white">
+                            {fmtUsd(briefing.free_capital_usd)}
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button
+                            onclick={() => openMoney("deposit")}
+                            class="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500"
+                            >+ Add money</button
+                        >
+                        <button
+                            onclick={() => openMoney("withdraw")}
+                            class="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-800"
+                            >Withdraw</button
+                        >
+                    </div>
+                </div>
                 <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
                     <div
                         class="rounded-xl border border-neutral-800 bg-neutral-950 p-5 flex flex-col items-center justify-center text-center"
@@ -489,6 +553,50 @@
             </div>
         {/if}
     </main>
+
+    {#if showMoney}
+        <div class="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4">
+            <div class="w-full max-w-sm rounded-2xl border border-neutral-700 bg-neutral-950 p-6">
+                <h3 class="mb-1 text-lg font-semibold text-white">
+                    {moneyKind === "deposit" ? "Add money (paper)" : "Withdraw (paper)"}
+                </h3>
+                <p class="mb-4 text-xs text-neutral-500">
+                    {moneyKind === "deposit"
+                        ? "Adds to your simulated balance. No real money is moved."
+                        : "Takes from free cash only — frozen safety reserves are protected. Real-money withdrawals are done manually at your broker, by design."}
+                </p>
+                <label class="mb-1 block text-[10px] uppercase tracking-wider text-neutral-500"
+                    >Amount (USD)</label
+                >
+                <input
+                    bind:value={moneyAmount}
+                    type="number"
+                    min="0"
+                    placeholder="e.g. 10000"
+                    class="mb-3 w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
+                />
+                {#if moneyMsg}<p class="mb-3 text-xs text-red-400">{moneyMsg}</p>{/if}
+                <div class="flex gap-2">
+                    <button
+                        onclick={submitMoney}
+                        disabled={moneyBusy}
+                        class="flex-1 rounded-lg bg-emerald-600 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                    >
+                        {moneyBusy
+                            ? "Working…"
+                            : moneyKind === "deposit"
+                              ? "Add money"
+                              : "Withdraw"}
+                    </button>
+                    <button
+                        onclick={() => (showMoney = false)}
+                        class="rounded-lg border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:bg-neutral-800"
+                        >Cancel</button
+                    >
+                </div>
+            </div>
+        </div>
+    {/if}
 </div>
 
 <style>

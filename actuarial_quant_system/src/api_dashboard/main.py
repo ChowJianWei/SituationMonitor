@@ -273,6 +273,10 @@ class OnboardingRequest(BaseModel):
     allocation_usd: float = 0.0
 
 
+class AmountRequest(BaseModel):
+    amount_usd: float
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -532,6 +536,50 @@ async def onboarding_validate(req: OnboardingRequest) -> dict:
     await db.write_audit("api", "onboarding_validate", {"provider": req.provider})
     return {"validation": result, "balances": balances,
             "security_notice": "Withdrawal permission is disabled; no bank/ACH/SWIFT access."}
+
+
+@app.post("/api/v1/account/deposit")
+async def account_deposit(req: AmountRequest) -> dict:
+    """
+    Add money to the PAPER account. This is an accounting adjustment only — it
+    moves no real funds. Deposits are not profit, so start-of-day equity is
+    shifted too, leaving the 24h P&L unaffected.
+    """
+    if req.amount_usd <= 0:
+        return {"ok": False, "error": "Amount must be a positive number."}
+    acct = await state.restore_or_seed(settings.seed_equity_usd)
+    new_equity = acct["equity_usd"] + req.amount_usd
+    new_sod = acct.get("start_of_day_equity_usd", acct["equity_usd"]) + req.amount_usd
+    await state.set_account(new_equity, new_sod, acct.get("open_gross_notional_usd", 0.0))
+    await db.write_audit("api", "paper_deposit", {"amount_usd": req.amount_usd})
+    return {"ok": True, "equity_usd": round(new_equity, 2), "deposited_usd": req.amount_usd,
+            "note": "Paper balance only — no real money was moved."}
+
+
+@app.post("/api/v1/account/withdraw")
+async def account_withdraw(req: AmountRequest) -> dict:
+    """
+    Withdraw from the PAPER account. You can only take out FREE cash — frozen
+    loss reserves backing open positions are protected. There is intentionally
+    no real-money withdrawal path anywhere in this system.
+    """
+    if req.amount_usd <= 0:
+        return {"ok": False, "error": "Amount must be a positive number."}
+    acct = await state.restore_or_seed(settings.seed_equity_usd)
+    frozen = await state.total_locked_reserves()
+    free = acct["equity_usd"] - frozen
+    if req.amount_usd > free:
+        return {"ok": False,
+                "error": (f"You can only withdraw free cash. Max is ${free:,.0f} "
+                          f"(${frozen:,.0f} is frozen as safety reserves)."),
+                "max_withdrawable_usd": round(free, 2)}
+    new_equity = acct["equity_usd"] - req.amount_usd
+    new_sod = acct.get("start_of_day_equity_usd", acct["equity_usd"]) - req.amount_usd
+    await state.set_account(new_equity, new_sod, acct.get("open_gross_notional_usd", 0.0))
+    await db.write_audit("api", "paper_withdraw", {"amount_usd": req.amount_usd})
+    return {"ok": True, "equity_usd": round(new_equity, 2), "withdrawn_usd": req.amount_usd,
+            "note": ("Paper balance only. Real-money withdrawals are intentionally "
+                     "impossible here — do those manually at your broker.")}
 
 
 @app.post("/api/v1/reallocate")
