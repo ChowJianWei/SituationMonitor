@@ -62,5 +62,9 @@ class Settings:
     # Starting equity used to seed a fresh paper account on first boot.
     seed_equity_usd: float = float(os.getenv("SEED_EQUITY_USD", "180000"))
 
+    # Optional live market-data WebSocket. If empty, the feed consumer is disabled
+    # (avoids endless reconnect warnings against a non-existent URL).
+    feed_ws_url: str = os.getenv("FEED_WS_URL", "")
+
 
 settings = Settings()

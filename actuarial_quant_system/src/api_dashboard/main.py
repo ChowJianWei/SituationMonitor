@@ -131,8 +131,36 @@ def _demo_macro_panel():
 # ---------------------------------------------------------------------------
 # The autonomous PAPER underwriting cycle
 # ---------------------------------------------------------------------------
+def _analyze_asset_sync(symbol, spot, seed, richness, stress_at) -> dict:
+    """CPU-heavy per-asset analysis (HMM / GARCH / EVT). Run in a worker thread
+    via asyncio.to_thread so it never blocks the web server's event loop."""
+    mkt = _asset_market(symbol, spot, seed, richness, stress_at)
+    regime = detect_regime(mkt["returns"], n_states=3)
+    garch = fit_garch(mkt["returns"])
+    vrp = variance_risk_premium(mkt["iv"], mkt["rv"])
+    cur_conf = max(regime.state_probabilities) if regime.state_probabilities else 0.6
+    signal = generate_signal(regime.current_regime, vrp, regime_confidence=cur_conf)
+    losses = -mkt["returns"][mkt["returns"] < 0]
+    cvar_frac = fit_gpd_tail_risk(losses, 0.99, 0.95).cvar
+    proposal = select_strategy(
+        symbol=symbol, signal=signal, spot=spot, cvar_fraction=cvar_frac,
+        max_single_trade_usd=MAX_SINGLE_TRADE_NOTIONAL_USD,
+        high_vol=(garch.forecast_vol > garch.long_run_vol),
+    )
+    return {"regime": regime.current_regime, "signal": signal, "proposal": proposal}
+
+
+def _head_snapshot_sync() -> dict:
+    head = _asset_market(*UNIVERSE[0])
+    head_regime = detect_regime(head["returns"], n_states=3)
+    head_garch = fit_garch(head["returns"])
+    return {"regime": head_regime.current_regime, "garch_vol": head_garch.current_vol,
+            "garch_forecast": head_garch.forecast_vol, "labels": head_regime.regime_labels}
+
+
 async def run_underwriting_cycle() -> dict:
-    """One full pass: regime -> signal -> strategy -> risk gate -> paper fill."""
+    """One full pass: regime -> signal -> strategy -> risk gate -> paper fill.
+    All CPU-bound model fitting is offloaded to threads to keep the API live."""
     acct = await state.restore_or_seed(settings.seed_equity_usd)
     frozen = await state.total_locked_reserves()
     account = AccountState(
@@ -145,21 +173,10 @@ async def run_underwriting_cycle() -> dict:
     fills: List[dict] = []
     gross = account.open_gross_notional_usd
     for symbol, spot, seed, richness, stress_at in UNIVERSE:
-        mkt = _asset_market(symbol, spot, seed, richness, stress_at)
-        regime = detect_regime(mkt["returns"], n_states=3)
-        garch = fit_garch(mkt["returns"])
-        vrp = variance_risk_premium(mkt["iv"], mkt["rv"])
-        cur_conf = max(regime.state_probabilities) if regime.state_probabilities else 0.6
-        signal = generate_signal(regime.current_regime, vrp, regime_confidence=cur_conf)
-
-        losses = -mkt["returns"][mkt["returns"] < 0]
-        cvar_frac = fit_gpd_tail_risk(losses, 0.99, 0.95).cvar
-
-        proposal = select_strategy(
-            symbol=symbol, signal=signal, spot=spot, cvar_fraction=cvar_frac,
-            max_single_trade_usd=MAX_SINGLE_TRADE_NOTIONAL_USD,
-            high_vol=(garch.forecast_vol > garch.long_run_vol),
-        )
+        analysis = await asyncio.to_thread(
+            _analyze_asset_sync, symbol, spot, seed, richness, stress_at)
+        signal = analysis["signal"]
+        proposal = analysis["proposal"]
         if proposal is None:
             fills.append({"symbol": symbol, "action": signal.action.value,
                           "executed": False, "reasons": ["STAND_ASIDE: no edge."]})
@@ -174,21 +191,13 @@ async def run_underwriting_cycle() -> dict:
         result = await _executor().execute(proposal, account, ref_price=spot)
         if result.executed and proposal.side != "SELL" or result.verdict == "APPROVED":
             gross += proposal.notional_usd
-        fills.append({**result.as_dict(), "regime": regime.current_regime,
+        fills.append({**result.as_dict(), "regime": analysis["regime"],
                       "signal": signal.action.value})
 
     await state.set_account(account.equity_usd, account.start_of_day_equity_usd, gross)
 
-    # Persist a regime snapshot from the first asset for the historical log.
-    head = _asset_market(*UNIVERSE[0])
-    head_regime = detect_regime(head["returns"], n_states=3)
-    head_garch = fit_garch(head["returns"])
-    await db.save_regime_snapshot({
-        "regime": head_regime.current_regime,
-        "garch_vol": head_garch.current_vol,
-        "garch_forecast": head_garch.forecast_vol,
-        "labels": head_regime.regime_labels,
-    })
+    head_snap = await asyncio.to_thread(_head_snapshot_sync)
+    await db.save_regime_snapshot(head_snap)
 
     summary = {"as_of": datetime.now(timezone.utc).isoformat(),
                "kill_switch_engaged": kill_switch_status(),
@@ -199,7 +208,9 @@ async def run_underwriting_cycle() -> dict:
 
 
 async def _cycle_loop() -> None:
-    """Background task: run the underwriting cycle on a fixed interval."""
+    """Background task: run the underwriting cycle on a fixed interval.
+    Waits briefly first so the server is responsive immediately on boot."""
+    await asyncio.sleep(8)
     while True:
         try:
             await run_underwriting_cycle()
@@ -218,9 +229,13 @@ async def _startup() -> None:
     await bus.connect()
     await db.connect()
     await state.restore_or_seed(settings.seed_equity_usd)
-    app.state.feed_task = asyncio.create_task(
-        bus.consume_feed("wss://sandbox.exchange.local/stream")
-    )
+    # Only run the feed consumer if a real WebSocket URL is configured; otherwise
+    # it would loop forever trying to reach a non-existent host.
+    if settings.feed_ws_url:
+        app.state.feed_task = asyncio.create_task(bus.consume_feed(settings.feed_ws_url))
+    else:
+        app.state.feed_task = None
+        logger.info("No FEED_WS_URL set; market-data feed consumer disabled.")
     app.state.cycle_task = asyncio.create_task(_cycle_loop())
     logger.info("Engine online (paper_only=%s, cycle=%ss).",
                 settings.paper_trading_only, settings.cycle_interval_seconds)
@@ -297,20 +312,27 @@ async def broker_balances() -> dict:
 @app.get("/api/v1/regime")
 async def regime() -> dict:
     mkt = _asset_market(*UNIVERSE[0])
-    return {"garch": fit_garch(mkt["returns"]).as_dict(),
-            "regime": detect_regime(mkt["returns"], 3).as_dict()}
+
+    def _compute():
+        return {"garch": fit_garch(mkt["returns"]).as_dict(),
+                "regime": detect_regime(mkt["returns"], 3).as_dict()}
+
+    return await asyncio.to_thread(_compute)
 
 
 @app.get("/api/v1/signals")
 async def signals_endpoint() -> dict:
-    out = []
-    for symbol, spot, seed, richness, stress_at in UNIVERSE:
-        mkt = _asset_market(symbol, spot, seed, richness, stress_at)
-        reg = detect_regime(mkt["returns"], 3)
-        vrp = variance_risk_premium(mkt["iv"], mkt["rv"])
-        sig = generate_signal(reg.current_regime, vrp)
-        out.append({"symbol": symbol, "regime": reg.current_regime, **sig.as_dict()})
-    return {"signals": out}
+    def _compute():
+        out = []
+        for symbol, spot, seed, richness, stress_at in UNIVERSE:
+            mkt = _asset_market(symbol, spot, seed, richness, stress_at)
+            reg = detect_regime(mkt["returns"], 3)
+            vrp = variance_risk_premium(mkt["iv"], mkt["rv"])
+            sig = generate_signal(reg.current_regime, vrp)
+            out.append({"symbol": symbol, "regime": reg.current_regime, **sig.as_dict()})
+        return out
+
+    return {"signals": await asyncio.to_thread(_compute)}
 
 
 @app.get("/api/v1/risk/ruin")
@@ -318,9 +340,8 @@ async def ruin() -> dict:
     acct = await state.restore_or_seed(settings.seed_equity_usd)
     frozen = await state.total_locked_reserves()
     metrics = TradeMetrics(1.0, 0.56, 420.0, 510.0)
-    res = simulate_ruin_probability(
-        surplus=acct["equity_usd"] - frozen, metrics=metrics,
-        horizon=10_000, n_paths=1_500)
+    res = await asyncio.to_thread(
+        simulate_ruin_probability, acct["equity_usd"] - frozen, metrics, 10_000, 1_500)
     return res.as_dict()
 
 
@@ -330,13 +351,18 @@ async def daily_briefing() -> dict:
     frozen = await state.total_locked_reserves()
     free_capital = acct["equity_usd"] - frozen
 
-    head = _asset_market(*UNIVERSE[0])
-    losses = -head["returns"][head["returns"] < 0]
-    tail = fit_gpd_tail_risk(losses, 0.99, 0.95)
-    reg = detect_regime(head["returns"], 3)
-    ruin_res = simulate_ruin_probability(
-        surplus=free_capital, metrics=TradeMetrics(1.0, 0.56, 420.0, 510.0),
-        horizon=10_000, n_paths=1_500)
+    def _analytics():
+        head = _asset_market(*UNIVERSE[0])
+        losses = -head["returns"][head["returns"] < 0]
+        return (
+            fit_gpd_tail_risk(losses, 0.99, 0.95),
+            detect_regime(head["returns"], 3),
+            simulate_ruin_probability(
+                surplus=free_capital, metrics=TradeMetrics(1.0, 0.56, 420.0, 510.0),
+                horizon=10_000, n_paths=1_500),
+        )
+
+    tail, reg, ruin_res = await asyncio.to_thread(_analytics)
 
     dd_headroom = max(0.0, 1.0 - ruin_res.ruin_probability)
     reserve_health = min(1.0, free_capital / max(acct["equity_usd"], 1e-9))
