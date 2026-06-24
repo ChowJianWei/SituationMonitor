@@ -29,6 +29,7 @@ from pydantic import BaseModel
 
 from ..config import settings
 from ..data_pipeline.database import Database
+from ..data_pipeline.market_data import aclose as md_aclose, get_market, log_returns
 from ..data_pipeline.state_store import StateStore
 from ..data_pipeline.stream_bus import StreamBus
 from ..execution.broker_connector import BrokerConnector, BrokerCredentials, KeyScope
@@ -252,6 +253,7 @@ async def _shutdown() -> None:
     await broker.aclose()
     if tradier is not None:
         await tradier.aclose()
+    await md_aclose()
     await db.close()
     await bus.aclose()
 
@@ -455,6 +457,58 @@ async def macro_propagation() -> dict:
 @app.get("/api/v1/trades")
 async def trades(limit: int = 50) -> dict:
     return {"trades": await db.get_recent_trades(limit)}
+
+
+# ---- Markets (real OHLC + regime, for the K-line tab) ----
+MARKET_SYMBOLS = ["BTC", "ETH", "SPY"]
+
+
+def _stance_for(regime: str) -> str:
+    return {
+        "TAIL_STRESS": "Defensive — cut risk, hold cash",
+        "TRENDING": "Lean long — buy spot",
+        "CHOPPY_MEAN_REVERT": "Sell option premium (when rich)",
+    }.get(regime, "No clear edge")
+
+
+def _market_regime_sync(candles: list[dict]) -> dict:
+    rets = log_returns(candles)
+    if rets.size < 40:
+        return {"regime": "UNKNOWN", "realized_vol_annual": None}
+    reg = detect_regime(rets, 3)
+    from ..models.signals import realized_vol_close_to_close as _rv
+    return {"regime": reg.current_regime,
+            "realized_vol_annual": round(_rv(rets), 4)}
+
+
+@app.get("/api/v1/markets")
+async def markets() -> dict:
+    """All tracked markets with last price (real data) + the system's stance."""
+    out = []
+    for sym in MARKET_SYMBOLS:
+        mkt = await get_market(sym)
+        analysis = await asyncio.to_thread(_market_regime_sync, mkt["candles"])
+        out.append({"symbol": sym, "last": mkt["last"], "source": mkt["source"],
+                    "regime": analysis["regime"], "stance": _stance_for(analysis["regime"]),
+                    "realized_vol_annual": analysis.get("realized_vol_annual")})
+    return {"markets": out}
+
+
+@app.get("/api/v1/markets/{symbol}/candles")
+async def market_candles(symbol: str, limit: int = 90) -> dict:
+    """OHLC candles for one market plus the current regime label (real data)."""
+    mkt = await get_market(symbol)
+    analysis = await asyncio.to_thread(_market_regime_sync, mkt["candles"])
+    display = mkt["candles"][-limit:]
+    regime = analysis["regime"]
+    return {
+        "symbol": mkt["symbol"], "source": mkt["source"], "last": mkt["last"],
+        "regime": regime, "stance": _stance_for(regime),
+        "realized_vol_annual": analysis.get("realized_vol_annual"),
+        "candles": display,
+        "marker": ({"t": display[-1]["t"], "c": display[-1]["c"],
+                    "regime": regime, "stance": _stance_for(regime)} if display else None),
+    }
 
 
 # Estimated paper premium captured per short-vol fill (fraction of notional).
