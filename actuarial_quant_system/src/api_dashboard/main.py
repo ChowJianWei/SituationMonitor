@@ -276,6 +276,23 @@ class OnboardingRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+@app.get("/")
+async def root() -> dict:
+    """Friendly index so the bare domain doesn't look like a 404."""
+    return {
+        "service": "Actuarial Quant Engine",
+        "status": "ok",
+        "mode": "paper" if settings.paper_trading_only else "live",
+        "docs": "/docs",
+        "health": "/health",
+        "endpoints": [
+            "/api/v1/daily-briefing", "/api/v1/performance",
+            "/api/v1/fund-allocation", "/api/v1/signals",
+            "/api/v1/macro-propagation", "/api/v1/regime", "/api/v1/risk/ruin",
+        ],
+    }
+
+
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok", "paper_trading_only": settings.paper_trading_only,
