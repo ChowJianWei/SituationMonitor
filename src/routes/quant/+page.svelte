@@ -1,8 +1,13 @@
 <script lang="ts">
     import { onMount } from "svelte";
 
-    type Tab = "Briefing" | "Performance" | "Allocation" | "Intelligence";
+    type Tab = "Briefing" | "Performance" | "Markets" | "Allocation" | "Intelligence";
     let activeTab = $state<Tab>("Briefing");
+
+    let markets = $state<any[]>([]);
+    let selectedSymbol = $state<string>("BTC");
+    let candleData = $state<any>(null);
+    let candlesLoading = $state(false);
 
     let briefing = $state<any>(null);
     let performance = $state<any>(null);
@@ -86,7 +91,62 @@
         }
     }
 
-    onMount(loadAll);
+    async function loadMarkets() {
+        try {
+            const m = await get("markets");
+            markets = m.markets ?? [];
+        } catch {
+            markets = [];
+        }
+    }
+
+    async function loadCandles(sym: string) {
+        selectedSymbol = sym;
+        candlesLoading = true;
+        try {
+            candleData = await get(`markets/${sym}/candles?limit=90`);
+        } catch {
+            candleData = null;
+        } finally {
+            candlesLoading = false;
+        }
+    }
+
+    onMount(async () => {
+        await loadAll();
+        await loadMarkets();
+        await loadCandles(selectedSymbol);
+    });
+
+    // Candlestick geometry derived from the selected market's candles.
+    let chart = $derived.by(() => {
+        const cs = candleData?.candles ?? [];
+        if (cs.length < 2) return null;
+        const w = 920,
+            h = 340,
+            padL = 8,
+            padR = 56,
+            padT = 10,
+            padB = 22;
+        const min = Math.min(...cs.map((c: any) => c.l));
+        const max = Math.max(...cs.map((c: any) => c.h));
+        const span = max - min || 1;
+        const n = cs.length;
+        const cw = (w - padL - padR) / n;
+        const bodyW = Math.max(1.5, cw * 0.62);
+        const xc = (i: number) => padL + i * cw + cw / 2;
+        const yv = (v: number) => padT + (1 - (v - min) / span) * (h - padT - padB);
+        const bars = cs.map((c: any, i: number) => ({
+            x: xc(i),
+            wickTop: yv(c.h),
+            wickBot: yv(c.l),
+            bodyTop: yv(Math.max(c.o, c.c)),
+            bodyH: Math.max(1, Math.abs(yv(c.o) - yv(c.c))),
+            up: c.c >= c.o,
+        }));
+        return { w, h, padL, padR, bodyW, min, max, last: cs[cs.length - 1].c, bars,
+                 yLast: yv(cs[cs.length - 1].c) };
+    });
 
     const fmtUsd = (n: number | null | undefined) =>
         n == null
@@ -274,7 +334,7 @@
         <div
             class="mb-6 flex gap-1 border-b border-neutral-800 overflow-x-auto no-scrollbar"
         >
-            {#each [["Briefing", "Overview"], ["Performance", "Track record"], ["Allocation", "Where the money is"], ["Intelligence", "The why"]] as [tab, sub]}
+            {#each [["Briefing", "Overview"], ["Performance", "Track record"], ["Markets", "Charts"], ["Allocation", "Where the money is"], ["Intelligence", "The why"]] as [tab, sub]}
                 <button
                     class="px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap {activeTab ===
                     tab
@@ -457,6 +517,79 @@
                     {/if}
                 </div>
             {/if}
+        {:else if activeTab === "Markets"}
+            <p class="mb-4 text-sm text-neutral-400">
+                Live prices and the system's current read on each market. Click a market to
+                see its candlestick chart with the system's stance labelled on it.
+            </p>
+            <!-- Market selector list -->
+            <div class="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {#each markets as m}
+                    <button
+                        onclick={() => loadCandles(m.symbol)}
+                        class="rounded-xl border p-4 text-left transition {selectedSymbol === m.symbol
+                            ? 'border-blue-500 bg-blue-500/5'
+                            : 'border-neutral-800 bg-neutral-950 hover:border-neutral-700'}"
+                    >
+                        <div class="flex items-center justify-between">
+                            <span class="text-lg font-bold text-white">{m.symbol}</span>
+                            <span class="text-[9px] uppercase tracking-wider text-neutral-600"
+                                >{m.source === "synthetic" ? "demo data" : m.source}</span
+                            >
+                        </div>
+                        <div class="mt-1 text-xl font-semibold text-neutral-200">
+                            {m.last?.toLocaleString("en-US", { style: "currency", currency: "USD" })}
+                        </div>
+                        <div class="mt-1 text-xs {regimeTone(m.regime)}">{m.stance}</div>
+                    </button>
+                {/each}
+                {#if markets.length === 0}
+                    <p class="text-sm text-neutral-500">Loading markets…</p>
+                {/if}
+            </div>
+
+            <!-- Candlestick chart -->
+            <div class="rounded-xl border border-neutral-800 bg-neutral-950 p-5">
+                <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <h4 class="text-sm font-semibold text-white">
+                        {selectedSymbol} · last {candleData?.candles?.length ?? 0} bars
+                        {#if candleData?.source}<span class="text-[10px] text-neutral-600"> ({candleData.source === "synthetic" ? "demo data" : "real data"})</span>{/if}
+                    </h4>
+                    {#if candleData}
+                        <span class="rounded px-2 py-0.5 text-xs font-semibold {regimeTone(candleData.regime)} bg-neutral-900 border border-neutral-800">
+                            System view: {candleData.stance}
+                        </span>
+                    {/if}
+                </div>
+                {#if candlesLoading}
+                    <p class="text-sm text-neutral-500">Loading chart…</p>
+                {:else if chart}
+                    <svg viewBox={`0 0 ${chart.w} ${chart.h}`} class="w-full">
+                        <!-- price axis labels -->
+                        <text x={chart.w - chart.padR + 6} y="14" class="fill-neutral-500" font-size="11">{chart.max.toLocaleString()}</text>
+                        <text x={chart.w - chart.padR + 6} y={chart.h - 24} class="fill-neutral-500" font-size="11">{chart.min.toLocaleString()}</text>
+                        <!-- last price line + label -->
+                        <line x1={chart.padL} y1={chart.yLast} x2={chart.w - chart.padR} y2={chart.yLast} stroke="#3b82f6" stroke-width="1" stroke-dasharray="3 3" opacity="0.6" />
+                        <text x={chart.w - chart.padR + 6} y={chart.yLast + 4} class="fill-blue-400" font-size="11" font-weight="600">{chart.last.toLocaleString()}</text>
+                        <!-- candles -->
+                        {#each chart.bars as b}
+                            <line x1={b.x} y1={b.wickTop} x2={b.x} y2={b.wickBot} stroke={b.up ? "#10b981" : "#ef4444"} stroke-width="1" />
+                            <rect x={b.x - chart.bodyW / 2} y={b.bodyTop} width={chart.bodyW} height={b.bodyH} fill={b.up ? "#10b981" : "#ef4444"} />
+                        {/each}
+                        <!-- signal marker on the latest candle -->
+                        {#if chart.bars.length}
+                            {@const lb = chart.bars[chart.bars.length - 1]}
+                            <polygon points={`${lb.x - 5},${lb.wickTop - 8} ${lb.x + 5},${lb.wickTop - 8} ${lb.x},${lb.wickTop - 2}`} fill="#facc15" />
+                        {/if}
+                    </svg>
+                    <p class="mt-2 text-[11px] text-neutral-500">
+                        ▲ marks the latest bar, where the system's current read applies.
+                        Green = up bar, red = down bar.
+                    </p>
+                {:else}
+                    <p class="text-sm text-neutral-500">No chart data.</p>
+                {/if}
+            </div>
         {:else if activeTab === "Allocation"}
             <p class="mb-4 text-sm text-neutral-400">
                 How the system is using the money it's working with, split by job. (Amounts are
