@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { supabaseAdmin } from '$lib/server/supabase';
-import { sendAlertEmail } from '$lib/server/email';
+import { sendAlertEmail, sendDailyReportEmail } from '$lib/server/email';
 import { fetchBreakingCandidates } from '$lib/api/news';
 import { fetchMarketSnapshot } from '$lib/api/markets';
 import { detectAndClusterEvents } from '$lib/analysis/event';
@@ -109,7 +109,14 @@ export async function POST({ request, url }) {
                     risk_free_rate: ctx!.risk_free_rate,
                 }));
             if (optionsRows.length > 0) {
-                await supabaseAdmin.from('event_options_context').insert(optionsRows);
+                try {
+                    const { error: optErr } = await supabaseAdmin.from('event_options_context').insert(optionsRows);
+                    if (optErr) {
+                        console.warn('[CRON] Options context insert failed (table might be missing):', optErr);
+                    }
+                } catch (optEx) {
+                    console.warn('[CRON] Exception inserting options context:', optEx);
+                }
             }
 
             // Build implied-move lines for email body
@@ -141,6 +148,26 @@ export async function POST({ request, url }) {
                         status: 'sent'
                     });
                     sentCount++;
+                }
+            }
+        }
+
+        if (clusters.length === 0) {
+            console.log('[CRON] No high-severity clusters detected. Sending daily summary to subscribers...');
+            const marketSnapshot = await fetchMarketSnapshot(['SPY', 'QQQ', 'VIX', 'GLD', 'USO']);
+            if (subscribers && subscribers.length > 0) {
+                for (const sub of subscribers) {
+                    try {
+                        await sendDailyReportEmail(
+                            sub.email,
+                            marketSnapshot,
+                            sub.unsub_token,
+                            url.origin
+                        );
+                        sentCount++;
+                    } catch (mailEx) {
+                        console.error(`[CRON] Failed to send daily report email to ${sub.email}:`, mailEx);
+                    }
                 }
             }
         }
