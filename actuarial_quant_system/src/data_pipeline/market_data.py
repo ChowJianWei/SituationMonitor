@@ -28,8 +28,13 @@ logger = logging.getLogger("market_data")
 _TTL = 300  # seconds
 _cache: dict[str, tuple[float, dict]] = {}
 
-# Crypto symbols routed to Kraken; everything else to Yahoo.
-_KRAKEN_PAIR = {"BTC": "XBTUSD", "ETH": "ETHUSD"}
+# Crypto symbols routed to Kraken; ANY other symbol (stocks/ETFs) goes to Yahoo,
+# so the user can look up essentially any ticker.
+_KRAKEN_PAIR = {
+    "BTC": "XBTUSD", "ETH": "ETHUSD", "SOL": "SOLUSD", "XRP": "XRPUSD",
+    "ADA": "ADAUSD", "DOT": "DOTUSD", "LINK": "LINKUSD", "AVAX": "AVAXUSD",
+    "LTC": "LTCUSD", "DOGE": "XDGUSD", "MATIC": "MATICUSD",
+}
 # Plausible base prices for the synthetic fallback.
 _FALLBACK_SPOT = {"BTC": 65_000.0, "ETH": 3_500.0, "SPY": 540.0}
 
@@ -120,7 +125,7 @@ async def get_market(symbol: str) -> dict:
         candles = _synthetic(symbol)
         source = "synthetic"
 
-    data = {"symbol": symbol, "source": source,
+    data = {"symbol": symbol, "source": source, "found": source != "synthetic",
             "last": round(candles[-1]["c"], 2), "candles": candles}
     _cache[symbol] = (now, data)
     return data

@@ -471,43 +471,93 @@ def _stance_for(regime: str) -> str:
     }.get(regime, "No clear edge")
 
 
-def _market_regime_sync(candles: list[dict]) -> dict:
-    rets = log_returns(candles)
-    if rets.size < 40:
-        return {"regime": "UNKNOWN", "realized_vol_annual": None}
-    reg = detect_regime(rets, 3)
+def _verdict(regime: str, max_safe: float, cvar: float) -> tuple[str, str]:
+    """The differentiator: an underwriter's call no charting app gives you."""
+    if regime == "TAIL_STRESS":
+        return ("AVOID",
+                f"Stressed regime with a fat crash tail (~{cvar:.0%} expected loss on a "
+                f"bad day). The system would stay defensive and not underwrite here.")
+    if regime == "TRENDING":
+        return ("UNDERWRITE",
+                f"Calm and trending. Safe to take directional exposure up to about "
+                f"${max_safe:,.0f} without threatening capital survival.")
+    if regime == "CHOPPY_MEAN_REVERT":
+        return ("SELL PREMIUM",
+                f"Range-bound — ideal for selling option premium when it's overpriced. "
+                f"Safe underwriting size about ${max_safe:,.0f}.")
+    return ("WAIT", "Not enough signal to take a position.")
+
+
+def _full_analysis_sync(candles: list[dict], free_capital: float) -> dict:
+    """Regime + EVT tail risk + the ruin-bounded max safe position size."""
     from ..models.signals import realized_vol_close_to_close as _rv
-    return {"regime": reg.current_regime,
-            "realized_vol_annual": round(_rv(rets), 4)}
+    rets = log_returns(candles)
+    if rets.size < 50:
+        return {"enough_data": False, "regime": "UNKNOWN"}
+    reg = detect_regime(rets, 3)
+    rv = _rv(rets)
+    losses = -rets[rets < 0]
+    try:
+        tail = fit_gpd_tail_risk(losses, 0.99, 0.95)
+        cvar, var, xi = tail.cvar, tail.var, tail.xi
+    except Exception:
+        cvar = float(np.quantile(losses, 0.99)) if losses.size else 0.0
+        var, xi = cvar, None
+    # Underwriting limit: a 99% tail loss on the position must not exceed 2% of
+    # free capital. Riskier (fatter-tail) names => smaller safe size.
+    # Advisory size (not the execution cap): fatter tail -> smaller safe size.
+    # Bounded by free capital — you can't safely deploy more than you hold.
+    max_safe = (free_capital * 0.02 / cvar) if cvar > 0 else 0.0
+    max_safe = float(min(max_safe, free_capital))
+    return {"enough_data": True, "regime": reg.current_regime,
+            "realized_vol_annual": round(rv, 4), "tail_cvar": round(cvar, 4),
+            "tail_var": round(var, 4), "tail_xi": (round(xi, 3) if xi is not None else None),
+            "implied_move_30d": round(rv * (21.0 / 252.0) ** 0.5, 4),
+            "max_safe_position_usd": round(max_safe, 0)}
 
 
 @app.get("/api/v1/markets")
 async def markets() -> dict:
-    """All tracked markets with last price (real data) + the system's stance."""
+    """A few popular markets with last price (real data) + the system's stance."""
     out = []
     for sym in MARKET_SYMBOLS:
         mkt = await get_market(sym)
-        analysis = await asyncio.to_thread(_market_regime_sync, mkt["candles"])
+        rs = await asyncio.to_thread(
+            lambda c: (detect_regime(log_returns(c), 3).current_regime
+                       if log_returns(c).size >= 40 else "UNKNOWN"), mkt["candles"])
         out.append({"symbol": sym, "last": mkt["last"], "source": mkt["source"],
-                    "regime": analysis["regime"], "stance": _stance_for(analysis["regime"]),
-                    "realized_vol_annual": analysis.get("realized_vol_annual")})
+                    "regime": rs, "stance": _stance_for(rs)})
     return {"markets": out}
 
 
 @app.get("/api/v1/markets/{symbol}/candles")
 async def market_candles(symbol: str, limit: int = 90) -> dict:
-    """OHLC candles for one market plus the current regime label (real data)."""
+    """
+    OHLC for ANY ticker (stocks via Yahoo, crypto via Kraken) plus the full
+    actuarial verdict — regime, EVT tail risk, and the ruin-bounded max safe
+    position size. This verdict is the thing a normal charting app can't give.
+    """
     mkt = await get_market(symbol)
-    analysis = await asyncio.to_thread(_market_regime_sync, mkt["candles"])
+    acct = await state.get_account() or {}
+    frozen = await state.total_locked_reserves()
+    free_capital = acct.get("equity_usd", settings.seed_equity_usd) - frozen
+    analysis = await asyncio.to_thread(_full_analysis_sync, mkt["candles"], free_capital)
     display = mkt["candles"][-limit:]
-    regime = analysis["regime"]
+    regime = analysis.get("regime", "UNKNOWN")
+    verdict, verdict_text = _verdict(
+        regime, analysis.get("max_safe_position_usd", 0.0), analysis.get("tail_cvar", 0.0))
     return {
-        "symbol": mkt["symbol"], "source": mkt["source"], "last": mkt["last"],
-        "regime": regime, "stance": _stance_for(regime),
+        "symbol": mkt["symbol"], "source": mkt["source"], "found": mkt.get("found", False),
+        "last": mkt["last"], "regime": regime, "stance": _stance_for(regime),
+        "verdict": verdict, "verdict_text": verdict_text,
         "realized_vol_annual": analysis.get("realized_vol_annual"),
+        "tail_cvar": analysis.get("tail_cvar"), "tail_xi": analysis.get("tail_xi"),
+        "implied_move_30d": analysis.get("implied_move_30d"),
+        "max_safe_position_usd": analysis.get("max_safe_position_usd"),
+        "enough_data": analysis.get("enough_data", False),
+        "free_capital_usd": round(free_capital, 2),
         "candles": display,
-        "marker": ({"t": display[-1]["t"], "c": display[-1]["c"],
-                    "regime": regime, "stance": _stance_for(regime)} if display else None),
+        "marker": ({"t": display[-1]["t"], "c": display[-1]["c"]} if display else None),
     }
 
 

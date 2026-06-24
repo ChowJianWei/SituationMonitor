@@ -8,6 +8,9 @@
     let selectedSymbol = $state<string>("BTC");
     let candleData = $state<any>(null);
     let candlesLoading = $state(false);
+    let searchInput = $state("");
+
+    const POPULAR = ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "SPY", "QQQ", "BTC", "ETH", "SOL"];
 
     let briefing = $state<any>(null);
     let performance = $state<any>(null);
@@ -519,34 +522,107 @@
             {/if}
         {:else if activeTab === "Markets"}
             <p class="mb-4 text-sm text-neutral-400">
-                Live prices and the system's current read on each market. Click a market to
-                see its candlestick chart with the system's stance labelled on it.
+                Look up <b class="text-neutral-200">any</b> stock or crypto. Unlike a normal
+                charting app, you get an underwriter's verdict: how fat the crash tail is and the
+                largest position you could safely hold without threatening your capital's survival.
             </p>
-            <!-- Market selector list -->
-            <div class="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {#each markets as m}
+
+            <!-- Search any ticker -->
+            <form
+                onsubmit={(e) => {
+                    e.preventDefault();
+                    if (searchInput.trim()) loadCandles(searchInput.trim().toUpperCase());
+                }}
+                class="mb-3 flex gap-2"
+            >
+                <input
+                    bind:value={searchInput}
+                    placeholder="Search any ticker — AAPL, TSLA, NVDA, BTC, SOL…"
+                    class="flex-1 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
+                />
+                <button
+                    type="submit"
+                    class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
+                    >Analyze</button
+                >
+            </form>
+
+            <!-- Popular quick-picks -->
+            <div class="mb-5 flex flex-wrap gap-2">
+                {#each POPULAR as p}
                     <button
-                        onclick={() => loadCandles(m.symbol)}
-                        class="rounded-xl border p-4 text-left transition {selectedSymbol === m.symbol
-                            ? 'border-blue-500 bg-blue-500/5'
-                            : 'border-neutral-800 bg-neutral-950 hover:border-neutral-700'}"
+                        onclick={() => loadCandles(p)}
+                        class="rounded-full px-3 py-1 text-xs font-medium {selectedSymbol === p
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'}">{p}</button
                     >
-                        <div class="flex items-center justify-between">
-                            <span class="text-lg font-bold text-white">{m.symbol}</span>
-                            <span class="text-[9px] uppercase tracking-wider text-neutral-600"
-                                >{m.source === "synthetic" ? "demo data" : m.source}</span
-                            >
-                        </div>
-                        <div class="mt-1 text-xl font-semibold text-neutral-200">
-                            {m.last?.toLocaleString("en-US", { style: "currency", currency: "USD" })}
-                        </div>
-                        <div class="mt-1 text-xs {regimeTone(m.regime)}">{m.stance}</div>
-                    </button>
                 {/each}
-                {#if markets.length === 0}
-                    <p class="text-sm text-neutral-500">Loading markets…</p>
-                {/if}
             </div>
+
+            <!-- THE DIFFERENTIATOR: the underwriter's verdict -->
+            {#if candleData && !candlesLoading}
+                {#if candleData.source === "synthetic"}
+                    <div class="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+                        Couldn't fetch real data for <b>{candleData.symbol}</b> — showing a demo series.
+                        Double-check the ticker symbol.
+                    </div>
+                {/if}
+                <div class="mb-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <div
+                        class="rounded-xl border p-5 {candleData.verdict === 'AVOID'
+                            ? 'border-red-500/40 bg-red-500/5'
+                            : candleData.verdict === 'UNDERWRITE'
+                              ? 'border-emerald-500/40 bg-emerald-500/5'
+                              : 'border-amber-500/40 bg-amber-500/5'}"
+                    >
+                        <div class="text-[10px] uppercase tracking-widest text-neutral-500">
+                            The system's verdict on {candleData.symbol}
+                        </div>
+                        <div
+                            class="mt-1 text-2xl font-extrabold {candleData.verdict === 'AVOID'
+                                ? 'text-red-400'
+                                : candleData.verdict === 'UNDERWRITE'
+                                  ? 'text-emerald-400'
+                                  : 'text-amber-400'}"
+                        >
+                            {candleData.verdict}
+                        </div>
+                        <p class="mt-2 text-xs text-neutral-300">{candleData.verdict_text}</p>
+                    </div>
+                    <div class="lg:col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div class="rounded-xl border border-neutral-800 bg-neutral-950 p-3">
+                            <div class="text-[10px] uppercase tracking-wider text-neutral-500">Price</div>
+                            <div class="text-lg font-semibold text-white">
+                                {candleData.last?.toLocaleString("en-US", { style: "currency", currency: "USD" })}
+                            </div>
+                        </div>
+                        <div class="rounded-xl border border-neutral-800 bg-neutral-950 p-3">
+                            <div class="text-[10px] uppercase tracking-wider text-neutral-500">Crash-tail loss</div>
+                            <div class="text-lg font-semibold text-amber-400">
+                                {candleData.tail_cvar != null ? (candleData.tail_cvar * 100).toFixed(1) + "%" : "—"}
+                            </div>
+                            <div class="text-[9px] text-neutral-600">expected loss on a bad day</div>
+                        </div>
+                        <div class="rounded-xl border border-neutral-800 bg-neutral-950 p-3">
+                            <div class="text-[10px] uppercase tracking-wider text-neutral-500">Max safe size</div>
+                            <div class="text-lg font-semibold text-emerald-400">
+                                {candleData.max_safe_position_usd != null
+                                    ? "$" + candleData.max_safe_position_usd.toLocaleString()
+                                    : "—"}
+                            </div>
+                            <div class="text-[9px] text-neutral-600">without risking ruin</div>
+                        </div>
+                        <div class="rounded-xl border border-neutral-800 bg-neutral-950 p-3">
+                            <div class="text-[10px] uppercase tracking-wider text-neutral-500">~1-month move</div>
+                            <div class="text-lg font-semibold text-white">
+                                {candleData.implied_move_30d != null
+                                    ? "±" + (candleData.implied_move_30d * 100).toFixed(1) + "%"
+                                    : "—"}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {/if}
 
             <!-- Candlestick chart -->
             <div class="rounded-xl border border-neutral-800 bg-neutral-950 p-5">
