@@ -135,14 +135,27 @@
         alerts = alerts.filter((_, i) => i !== index);
     }
 
-    function handleSubscribe(e: Event) {
+    async function handleSubscribe(e: Event) {
         e.preventDefault();
-        if (emailInput.trim()) {
-            subStatus = "success";
-            setTimeout(() => {
-                subStatus = "idle";
-                emailInput = "";
-            }, 3000);
+        const email = emailInput.trim();
+        if (!email) return;
+        try {
+            const res = await fetch("/api/subscribe", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email }),
+            });
+            if (res.ok) {
+                subStatus = "success";
+                setTimeout(() => {
+                    subStatus = "idle";
+                    emailInput = "";
+                }, 3000);
+            } else {
+                alert("订阅失败，请确认您的邮箱或Supabase服务是否连接");
+            }
+        } catch (err) {
+            alert("网络连接异常，无法访问订阅中心");
         }
     }
 
