@@ -11,6 +11,7 @@
     let online = $state(true);
     let busy = $state(false);
     let loading = $state(true);
+    let showGlossary = $state(false);
 
     async function get(path: string) {
         const r = await fetch(`/api/quant/${path}`);
@@ -56,7 +57,63 @@
     const fmtPct = (n: number | null | undefined) =>
         n == null ? "—" : `${(n * 100).toFixed(2)}%`;
 
-    // Equity-curve sparkline points.
+    // ---- plain-English translators ----
+    function regimePlain(r: string) {
+        if (r === "TAIL_STRESS")
+            return {
+                label: "Stressed (crash risk)",
+                tone: "text-red-400",
+                meaning:
+                    "Markets are turbulent. The system pulls back, stops selling risk, and raises cash to protect you.",
+            };
+        if (r === "TRENDING")
+            return {
+                label: "Trending",
+                tone: "text-emerald-400",
+                meaning:
+                    "Markets are moving in one clear direction. The system leans toward simply holding the asset.",
+            };
+        return {
+            label: "Choppy / sideways",
+            tone: "text-amber-400",
+            meaning:
+                "Markets are bouncing in a range. This is the sweet spot for selling option 'insurance' and collecting premium.",
+        };
+    }
+
+    function healthWord(shi: number) {
+        if (shi >= 90) return { word: "Very safe", tone: "text-emerald-400" };
+        if (shi >= 70) return { word: "Healthy", tone: "text-emerald-400" };
+        if (shi >= 50) return { word: "Caution", tone: "text-amber-400" };
+        return { word: "At risk", tone: "text-red-400" };
+    }
+
+    function ruinWord(p: number) {
+        if (p < 0.001) return "almost no chance of wiping out the account";
+        if (p < 0.01) return "a very low chance of wiping out the account";
+        if (p < 0.05) return "a small chance of wiping out the account";
+        return "a real chance of wiping out — be careful";
+    }
+
+    // One-sentence conclusion built from the live numbers.
+    let bottomLine = $derived.by(() => {
+        if (!briefing) return "";
+        const h = healthWord(briefing.surplus_health_index).word.toLowerCase();
+        const reg = regimePlain(briefing.regime);
+        const pnl = performance?.estimated_pnl_usd ?? 0;
+        const pnlStr =
+            pnl >= 0 ? `up ${fmtUsd(pnl)}` : `down ${fmtUsd(-pnl)}`;
+        const action =
+            briefing.regime === "TAIL_STRESS"
+                ? "holding back and keeping cash safe"
+                : "selling overpriced option 'insurance' and hedging the risk";
+        return `Your money is ${h} — ${ruinWord(briefing.ruin_probability)}. The market is ${reg.label.toLowerCase()}, so the system is ${action}. On paper it's ${pnlStr}. It runs on autopilot with fake money — nothing for you to do.`;
+    });
+
+    function regimeTone(r: string) {
+        return regimePlain(r).tone;
+    }
+
     let sparkPoints = $derived.by(() => {
         const data: number[] = performance?.equity_curve ?? [];
         if (data.length < 2) return "";
@@ -79,11 +136,15 @@
             (performance?.equity_curve?.[0] ?? 0),
     );
 
-    function regimeTone(r: string) {
-        if (r === "TAIL_STRESS") return "text-red-400";
-        if (r === "TRENDING") return "text-emerald-400";
-        return "text-amber-400";
-    }
+    const glossary = [
+        ["Surplus Health Index", "An overall 0–100 safety score for your capital — like a credit score for your account's survival. Higher = safer."],
+        ["Market regime", "What 'mood' the market is in: trending, choppy/sideways, or stressed. The system switches strategy based on it."],
+        ["Ruin probability", "The estimated chance the account gets wiped out over a very long run. The system is built to keep this near zero."],
+        ["Expected Shortfall (CVaR)", "If a rare bad day happens, the typical loss to expect. Smaller = safer."],
+        ["Loss reserve", "Cash the system freezes as a safety buffer whenever it holds a position — like an insurer setting money aside for claims."],
+        ["Premium", "The income the system earns by selling options — it acts like an insurance company collecting premiums."],
+        ["Paper mode", "Everything is simulated with fake money. No real trades, no real money at risk."],
+    ];
 </script>
 
 <svelte:head><title>Quant Desk | Situation Monitor</title></svelte:head>
@@ -109,13 +170,22 @@
                     {online ? "Engine Online" : "Engine Offline"}
                 </span>
             </div>
-            <button
-                onclick={runCycle}
-                disabled={busy || !online}
-                class="px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-40"
-            >
-                {busy ? "Running…" : "Run underwriting cycle"}
-            </button>
+            <div class="flex items-center gap-2">
+                <button
+                    onclick={() => (showGlossary = !showGlossary)}
+                    class="px-3 py-1.5 rounded-md text-xs font-medium border border-neutral-700 text-neutral-300 hover:bg-neutral-800"
+                >
+                    {showGlossary ? "Hide" : "What do these mean?"}
+                </button>
+                <button
+                    onclick={runCycle}
+                    disabled={busy || !online}
+                    class="px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-40"
+                    title="Make the system analyse the market and place simulated trades right now"
+                >
+                    {busy ? "Running…" : "Run analysis now"}
+                </button>
+            </div>
         </div>
     </header>
 
@@ -124,15 +194,37 @@
             <div
                 class="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200"
             >
-                <p class="font-semibold">Actuarial engine unreachable.</p>
+                <p class="font-semibold">The quant engine isn't reachable right now.</p>
                 <p class="mt-1 text-red-300/80">
-                    Start the Python backend and point <code
-                        >ACTUARIAL_API_URL</code
-                    > at it:
+                    It runs as a separate service. Make sure it's deployed and that
+                    <code>ACTUARIAL_API_URL</code> points to it.
                 </p>
-                <pre
-                    class="mt-2 overflow-x-auto rounded bg-neutral-950 p-2 text-xs text-neutral-300">cd actuarial_quant_system
-.venv/bin/python -m uvicorn src.api_dashboard.main:app --port 8200</pre>
+            </div>
+        {/if}
+
+        <!-- Always-visible plain-English conclusion -->
+        {#if briefing}
+            <div class="mb-6 rounded-xl border border-blue-500/30 bg-blue-500/5 p-5">
+                <div class="mb-2 text-[11px] font-bold uppercase tracking-widest text-blue-300">
+                    ⓘ In plain English — the bottom line
+                </div>
+                <p class="text-base md:text-lg leading-relaxed text-neutral-100">
+                    {bottomLine}
+                </p>
+            </div>
+        {/if}
+
+        {#if showGlossary}
+            <div class="mb-6 rounded-xl border border-neutral-800 bg-neutral-950 p-5">
+                <h4 class="mb-3 text-sm font-semibold text-white">Quick glossary</h4>
+                <dl class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
+                    {#each glossary as [term, def]}
+                        <div>
+                            <dt class="text-sm font-semibold text-blue-300">{term}</dt>
+                            <dd class="text-sm text-neutral-400">{def}</dd>
+                        </div>
+                    {/each}
+                </dl>
             </div>
         {/if}
 
@@ -140,13 +232,14 @@
         <div
             class="mb-6 flex gap-1 border-b border-neutral-800 overflow-x-auto no-scrollbar"
         >
-            {#each ["Briefing", "Performance", "Allocation", "Intelligence"] as tab}
+            {#each [["Briefing", "Overview"], ["Performance", "Track record"], ["Allocation", "Where the money is"], ["Intelligence", "The why"]] as [tab, sub]}
                 <button
                     class="px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap {activeTab ===
                     tab
                         ? 'border-blue-500 text-white'
                         : 'border-transparent text-neutral-400 hover:text-neutral-200'}"
-                    onclick={() => (activeTab = tab as Tab)}>{tab}</button
+                    onclick={() => (activeTab = tab as Tab)}
+                    >{tab} <span class="text-[10px] text-neutral-600">· {sub}</span></button
                 >
             {/each}
         </div>
@@ -154,29 +247,25 @@
         {#if loading}
             <p class="text-neutral-500">Loading…</p>
         {:else if activeTab === "Briefing"}
-            <!-- ===== BRIEFING ===== -->
             {#if briefing}
+                {@const hw = healthWord(briefing.surplus_health_index)}
+                {@const reg = regimePlain(briefing.regime)}
                 <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
                     <div
-                        class="rounded-xl border border-neutral-800 bg-neutral-950 p-5 flex flex-col items-center justify-center"
+                        class="rounded-xl border border-neutral-800 bg-neutral-950 p-5 flex flex-col items-center justify-center text-center"
                     >
                         <div class="text-5xl font-extrabold text-white">
                             {briefing.surplus_health_index?.toFixed(0)}
                         </div>
-                        <div
-                            class="mt-1 text-[10px] uppercase tracking-widest text-neutral-500"
-                        >
-                            Surplus Health Index
+                        <div class="mt-1 text-sm font-semibold {hw.tone}">{hw.word}</div>
+                        <div class="mt-1 text-[11px] text-neutral-500">
+                            Overall safety score (out of 100)
                         </div>
                     </div>
-                    <div class="lg:col-span-3 grid grid-cols-2 gap-4">
-                        <div
-                            class="rounded-xl border border-neutral-800 bg-neutral-950 p-4"
-                        >
-                            <div
-                                class="text-[10px] uppercase tracking-wider text-neutral-500"
-                            >
-                                Net 24h Earnings
+                    <div class="lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div class="rounded-xl border border-neutral-800 bg-neutral-950 p-4">
+                            <div class="text-[10px] uppercase tracking-wider text-neutral-500">
+                                Profit / loss (last 24h)
                             </div>
                             <div
                                 class="text-2xl font-semibold {(briefing.net_earnings_24h_usd ??
@@ -186,218 +275,118 @@
                             >
                                 {fmtUsd(briefing.net_earnings_24h_usd)}
                             </div>
-                        </div>
-                        <div
-                            class="rounded-xl border border-neutral-800 bg-neutral-950 p-4"
-                        >
-                            <div
-                                class="text-[10px] uppercase tracking-wider text-neutral-500"
-                            >
-                                Active Regime
-                            </div>
-                            <div
-                                class="text-2xl font-semibold {regimeTone(
-                                    briefing.regime,
-                                )}"
-                            >
-                                {briefing.regime?.replace(/_/g, " ")}
+                            <div class="mt-1 text-[11px] text-neutral-500">
+                                Paper money — resets as the system runs.
                             </div>
                         </div>
-                        <div
-                            class="rounded-xl border border-neutral-800 bg-neutral-950 p-4"
-                        >
-                            <div
-                                class="text-[10px] uppercase tracking-wider text-neutral-500"
-                            >
-                                Ruin Probability (10k-step)
+                        <div class="rounded-xl border border-neutral-800 bg-neutral-950 p-4">
+                            <div class="text-[10px] uppercase tracking-wider text-neutral-500">
+                                Market right now
+                            </div>
+                            <div class="text-2xl font-semibold {reg.tone}">{reg.label}</div>
+                            <div class="mt-1 text-[11px] text-neutral-500">{reg.meaning}</div>
+                        </div>
+                        <div class="rounded-xl border border-neutral-800 bg-neutral-950 p-4">
+                            <div class="text-[10px] uppercase tracking-wider text-neutral-500">
+                                Chance of wiping out
                             </div>
                             <div class="text-2xl font-semibold text-white">
                                 {fmtPct(briefing.ruin_probability)}
                             </div>
+                            <div class="mt-1 text-[11px] text-neutral-500">
+                                Lower is safer. The system keeps this near zero.
+                            </div>
                         </div>
-                        <div
-                            class="rounded-xl border border-neutral-800 bg-neutral-950 p-4"
-                        >
-                            <div
-                                class="text-[10px] uppercase tracking-wider text-neutral-500"
-                            >
-                                Expected Shortfall (99%)
+                        <div class="rounded-xl border border-neutral-800 bg-neutral-950 p-4">
+                            <div class="text-[10px] uppercase tracking-wider text-neutral-500">
+                                Worst-case crash loss
                             </div>
                             <div class="text-2xl font-semibold text-amber-400">
                                 {fmtPct(briefing.expected_shortfall_99)}
                             </div>
+                            <div class="mt-1 text-[11px] text-neutral-500">
+                                Typical loss if a rare bad day hits. Smaller is safer.
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div
-                    class="mt-4 rounded-xl border border-neutral-800 bg-neutral-950 p-5"
-                >
-                    <h4
-                        class="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-400"
-                    >
-                        Executive Narrative
-                    </h4>
-                    <ul class="space-y-2">
+                <details class="mt-4 rounded-xl border border-neutral-800 bg-neutral-950 p-5">
+                    <summary class="cursor-pointer text-xs font-semibold uppercase tracking-wider text-neutral-400">
+                        Technical detail (for the curious)
+                    </summary>
+                    <ul class="mt-3 space-y-2">
                         {#each briefing.executive_narrative ?? [] as line}
-                            <li class="flex gap-2 text-sm text-neutral-300">
-                                <span class="text-emerald-500">•</span>
-                                {line}
+                            <li class="flex gap-2 text-sm text-neutral-400">
+                                <span class="text-emerald-500">•</span>{line}
                             </li>
                         {/each}
                     </ul>
-                </div>
+                </details>
             {/if}
         {:else if activeTab === "Performance"}
-            <!-- ===== PERFORMANCE ===== -->
             {#if performance}
-                <p class="mb-4 text-xs text-amber-300/80">{performance.note}</p>
+                {@const pnl = performance.estimated_pnl_usd ?? 0}
+                <div class="mb-4 rounded-xl border border-neutral-800 bg-neutral-950 p-4 text-sm text-neutral-300">
+                    The system has placed <b class="text-white">{performance.total_paper_fills}</b>
+                    simulated trades. Its safety gate blocked
+                    <b class="text-red-400">{performance.rejected_by_gate}</b> that were too risky.
+                    On paper you're
+                    <b class={pnl >= 0 ? "text-emerald-400" : "text-red-400"}
+                        >{pnl >= 0 ? "up" : "down"} {fmtUsd(Math.abs(pnl))}</b
+                    >, from <b class="text-emerald-400">{fmtUsd(performance.estimated_premium_collected_usd)}</b>
+                    of option premium minus <b class="text-red-400">{fmtUsd(performance.total_costs_usd)}</b> in trading costs.
+                    <span class="text-amber-300/80">(Estimated, paper money — not real returns.)</span>
+                </div>
                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div
-                        class="rounded-xl border border-neutral-800 bg-neutral-950 p-4"
-                    >
-                        <div
-                            class="text-[10px] uppercase tracking-wider text-neutral-500"
-                        >
-                            Estimated Equity
-                        </div>
-                        <div class="text-2xl font-semibold text-white">
-                            {fmtUsd(performance.estimated_equity_usd)}
-                        </div>
+                    <div class="rounded-xl border border-neutral-800 bg-neutral-950 p-4">
+                        <div class="text-[10px] uppercase tracking-wider text-neutral-500">Account value (paper)</div>
+                        <div class="text-2xl font-semibold text-white">{fmtUsd(performance.estimated_equity_usd)}</div>
                     </div>
-                    <div
-                        class="rounded-xl border border-neutral-800 bg-neutral-950 p-4"
-                    >
-                        <div
-                            class="text-[10px] uppercase tracking-wider text-neutral-500"
-                        >
-                            Estimated P&L
-                        </div>
-                        <div
-                            class="text-2xl font-semibold {(performance.estimated_pnl_usd ??
-                                0) >= 0
-                                ? 'text-emerald-400'
-                                : 'text-red-400'}"
-                        >
-                            {fmtUsd(performance.estimated_pnl_usd)}
-                        </div>
+                    <div class="rounded-xl border border-neutral-800 bg-neutral-950 p-4">
+                        <div class="text-[10px] uppercase tracking-wider text-neutral-500">Profit so far (paper)</div>
+                        <div class="text-2xl font-semibold {pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}">{fmtUsd(pnl)}</div>
                     </div>
-                    <div
-                        class="rounded-xl border border-neutral-800 bg-neutral-950 p-4"
-                    >
-                        <div
-                            class="text-[10px] uppercase tracking-wider text-neutral-500"
-                        >
-                            Paper Fills
-                        </div>
-                        <div class="text-2xl font-semibold text-white">
-                            {performance.total_paper_fills}
-                        </div>
+                    <div class="rounded-xl border border-neutral-800 bg-neutral-950 p-4">
+                        <div class="text-[10px] uppercase tracking-wider text-neutral-500">Trades placed</div>
+                        <div class="text-2xl font-semibold text-white">{performance.total_paper_fills}</div>
                     </div>
-                    <div
-                        class="rounded-xl border border-neutral-800 bg-neutral-950 p-4"
-                    >
-                        <div
-                            class="text-[10px] uppercase tracking-wider text-neutral-500"
-                        >
-                            Rejected by Gate
-                        </div>
-                        <div
-                            class="text-2xl font-semibold {performance.rejected_by_gate >
-                            0
-                                ? 'text-red-400'
-                                : 'text-white'}"
-                        >
-                            {performance.rejected_by_gate}
-                        </div>
+                    <div class="rounded-xl border border-neutral-800 bg-neutral-950 p-4">
+                        <div class="text-[10px] uppercase tracking-wider text-neutral-500">Risky trades blocked</div>
+                        <div class="text-2xl font-semibold {performance.rejected_by_gate > 0 ? 'text-red-400' : 'text-white'}">{performance.rejected_by_gate}</div>
                     </div>
                 </div>
 
-                <div
-                    class="mt-4 rounded-xl border border-neutral-800 bg-neutral-950 p-5"
-                >
-                    <h4
-                        class="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-400"
-                    >
-                        Estimated Paper Equity Curve
-                    </h4>
+                <div class="mt-4 rounded-xl border border-neutral-800 bg-neutral-950 p-5">
+                    <h4 class="mb-1 text-sm font-semibold text-white">Account value over time (paper)</h4>
+                    <p class="mb-3 text-[11px] text-neutral-500">Each step is one analysis cycle. Up = the system is collecting more than it's paying.</p>
                     {#if sparkPoints}
                         <svg viewBox="0 0 600 120" class="w-full">
-                            <polyline
-                                fill="none"
-                                stroke={sparkUp ? "#10b981" : "#ef4444"}
-                                stroke-width="2"
-                                points={sparkPoints}
-                            />
+                            <polyline fill="none" stroke={sparkUp ? "#10b981" : "#ef4444"} stroke-width="2" points={sparkPoints} />
                         </svg>
                     {:else}
-                        <p class="text-sm text-neutral-500">
-                            No fills yet — run a cycle.
-                        </p>
+                        <p class="text-sm text-neutral-500">No trades yet — press “Run analysis now”.</p>
                     {/if}
-                    <div
-                        class="mt-2 flex flex-wrap justify-between gap-2 text-xs text-neutral-500"
-                    >
-                        <span
-                            >Premium: <span class="text-emerald-400"
-                                >{fmtUsd(
-                                    performance.estimated_premium_collected_usd,
-                                )}</span
-                            ></span
-                        >
-                        <span
-                            >Costs: <span class="text-red-400"
-                                >{fmtUsd(performance.total_costs_usd)}</span
-                            ></span
-                        >
-                        <span
-                            >Reserves locked: <span class="text-amber-400"
-                                >{fmtUsd(performance.reserves_locked_usd)}</span
-                            ></span
-                        >
+                    <div class="mt-2 flex flex-wrap justify-between gap-2 text-xs text-neutral-500">
+                        <span>Premium earned: <span class="text-emerald-400">{fmtUsd(performance.estimated_premium_collected_usd)}</span></span>
+                        <span>Costs paid: <span class="text-red-400">{fmtUsd(performance.total_costs_usd)}</span></span>
+                        <span>Safety cash frozen: <span class="text-amber-400">{fmtUsd(performance.reserves_locked_usd)}</span></span>
                     </div>
                 </div>
 
-                <div
-                    class="mt-4 rounded-xl border border-neutral-800 bg-neutral-950 p-5"
-                >
-                    <h4
-                        class="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-400"
-                    >
-                        Activity Feed
-                    </h4>
+                <div class="mt-4 rounded-xl border border-neutral-800 bg-neutral-950 p-5">
+                    <h4 class="mb-3 text-sm font-semibold text-white">Recent activity</h4>
                     {#if (performance.recent_activity ?? []).length === 0}
-                        <p class="text-sm text-neutral-500">No fills yet.</p>
+                        <p class="text-sm text-neutral-500">No trades yet.</p>
                     {:else}
                         <ul class="space-y-2">
                             {#each performance.recent_activity as t}
-                                <li
-                                    class="flex flex-wrap items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm"
-                                >
-                                    <span
-                                        class="rounded px-2 py-0.5 text-xs font-semibold {t.risk_verdict ===
-                                        'APPROVED'
-                                            ? 'bg-emerald-500/15 text-emerald-400'
-                                            : 'bg-red-500/15 text-red-400'}"
-                                        >{t.risk_verdict}</span
-                                    >
-                                    <span class="font-semibold text-white"
-                                        >{t.symbol}</span
-                                    >
-                                    <span class="text-neutral-400"
-                                        >{t.structure}</span
-                                    >
-                                    <span
-                                        class={t.side === "SELL"
-                                            ? "text-amber-400"
-                                            : "text-sky-400"}>{t.side}</span
-                                    >
-                                    <span class="text-neutral-300"
-                                        >{fmtUsd(Number(t.notional_usd))}</span
-                                    >
-                                    <span
-                                        class="ml-auto truncate text-xs text-neutral-500"
-                                        >{t.rationale}</span
-                                    >
+                                <li class="flex flex-wrap items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm">
+                                    <span class="rounded px-2 py-0.5 text-xs font-semibold {t.risk_verdict === 'APPROVED' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}">
+                                        {t.risk_verdict === "APPROVED" ? "Placed" : "Blocked"}
+                                    </span>
+                                    <span class="font-semibold text-white">{t.symbol}</span>
+                                    <span class="text-neutral-400">{t.structure === "SHORT_PUT" ? "sold a put (insurance)" : t.structure === "IRON_CONDOR" ? "sold a spread" : t.structure === "CASH_LONG" ? "bought spot" : t.structure}</span>
+                                    <span class="text-neutral-300">{fmtUsd(Number(t.notional_usd))}</span>
                                 </li>
                             {/each}
                         </ul>
@@ -405,127 +394,95 @@
                 </div>
             {/if}
         {:else if activeTab === "Allocation"}
-            <!-- ===== ALLOCATION ===== -->
+            <p class="mb-4 text-sm text-neutral-400">
+                How the system is using the money it's working with, split by job. (Amounts are
+                cumulative across trades, not your cash balance.)
+            </p>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {#each allocation as a}
-                    <div
-                        class="rounded-xl border border-neutral-800 bg-neutral-950 p-5"
-                    >
-                        <div class="mb-3 text-lg font-bold text-white">
-                            {a.asset}
-                        </div>
-                        <div class="space-y-2 text-sm">
-                            <div class="flex justify-between">
-                                <span class="text-neutral-400"
-                                    >Yield Generation</span
-                                >
-                                <span class="text-emerald-400"
-                                    >{fmtUsd(a.yield_generation_usd)}</span
-                                >
+                    <div class="rounded-xl border border-neutral-800 bg-neutral-950 p-5">
+                        <div class="mb-3 text-lg font-bold text-white">{a.asset}</div>
+                        <div class="space-y-3 text-sm">
+                            <div>
+                                <div class="flex justify-between">
+                                    <span class="text-neutral-300">Earning income</span>
+                                    <span class="text-emerald-400">{fmtUsd(a.yield_generation_usd)}</span>
+                                </div>
+                                <div class="text-[11px] text-neutral-500">Options sold to collect premium.</div>
                             </div>
-                            <div class="flex justify-between">
-                                <span class="text-neutral-400">Loss Reserve</span
-                                >
-                                <span class="text-amber-400"
-                                    >{fmtUsd(a.loss_reserve_usd)}</span
-                                >
+                            <div>
+                                <div class="flex justify-between">
+                                    <span class="text-neutral-300">Safety reserve</span>
+                                    <span class="text-amber-400">{fmtUsd(a.loss_reserve_usd)}</span>
+                                </div>
+                                <div class="text-[11px] text-neutral-500">Cash frozen to cover a bad move.</div>
                             </div>
-                            <div class="flex justify-between">
-                                <span class="text-neutral-400">Delta Hedge</span>
-                                <span class="text-sky-400"
-                                    >{fmtUsd(a.delta_hedge_usd)}</span
-                                >
+                            <div>
+                                <div class="flex justify-between">
+                                    <span class="text-neutral-300">Price hedge</span>
+                                    <span class="text-sky-400">{fmtUsd(a.delta_hedge_usd)}</span>
+                                </div>
+                                <div class="text-[11px] text-neutral-500">Spot held to cancel out price direction.</div>
                             </div>
                         </div>
                     </div>
                 {/each}
                 {#if allocation.length === 0}
-                    <p class="text-sm text-neutral-500">
-                        No allocations yet — run a cycle.
-                    </p>
+                    <p class="text-sm text-neutral-500">Nothing allocated yet — press “Run analysis now”.</p>
                 {/if}
             </div>
         {:else if activeTab === "Intelligence"}
-            <!-- ===== INTELLIGENCE ===== -->
+            <p class="mb-4 text-sm text-neutral-400">
+                How big outside events ripple through markets into your portfolio, and the math
+                models the system relies on.
+            </p>
             {#if macro?.links?.length}
-                <div
-                    class="rounded-xl border border-neutral-800 bg-neutral-950 p-5"
-                >
-                    <h4
-                        class="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-400"
-                    >
-                        Macro Shock Propagation — VAR(1) Impulse Response
-                    </h4>
+                <div class="rounded-xl border border-neutral-800 bg-neutral-950 p-5">
+                    <h4 class="mb-1 text-sm font-semibold text-white">Knock-on effects</h4>
+                    <p class="mb-3 text-[11px] text-neutral-500">
+                        Read each row left-to-right: a change in the first thing pushes on the next,
+                        and so on into your portfolio. “Credibility” = how reliable that chain is.
+                    </p>
                     <ul class="space-y-2 text-sm">
                         {#each macro.links as l}
                             <li class="flex flex-wrap items-center gap-2">
-                                <span class="font-mono text-xs text-amber-300"
-                                    >{l.source}</span
-                                >
+                                <span class="font-mono text-xs text-amber-300">{l.source.replace(/_/g, " ")}</span>
                                 <span class="text-neutral-600">→</span>
-                                <span class="font-mono text-xs text-sky-300"
-                                    >{l.channel}</span
-                                >
+                                <span class="font-mono text-xs text-sky-300">{l.channel.replace(/_/g, " ")}</span>
                                 <span class="text-neutral-600">→</span>
-                                <span class="font-mono text-xs text-emerald-300"
-                                    >{l.target}</span
-                                >
-                                <span
-                                    class="ml-auto text-xs {l.credibility > 0.7
-                                        ? 'text-emerald-400'
-                                        : 'text-amber-400'}"
-                                    >credibility {(l.credibility * 100).toFixed(
-                                        0,
-                                    )}%</span
-                                >
+                                <span class="font-mono text-xs text-emerald-300">{l.target.replace(/_/g, " ")}</span>
+                                <span class="ml-auto text-xs {l.credibility > 0.7 ? 'text-emerald-400' : 'text-amber-400'}">
+                                    {(l.credibility * 100).toFixed(0)}% reliable
+                                </span>
                             </li>
                         {/each}
                     </ul>
                 </div>
             {/if}
-            <div
-                class="mt-4 overflow-hidden rounded-xl border border-neutral-800"
-            >
+            <div class="mt-4 overflow-hidden rounded-xl border border-neutral-800">
                 <table class="w-full text-left text-sm">
                     <thead class="bg-neutral-900 text-neutral-400">
                         <tr>
                             <th class="px-4 py-3 font-medium">Model</th>
-                            <th class="px-4 py-3 font-medium">Purpose</th>
-                            <th class="px-4 py-3 font-medium">Why Trusted</th>
+                            <th class="px-4 py-3 font-medium">What it figures out</th>
+                            <th class="px-4 py-3 font-medium">Why it's trusted</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-neutral-800 bg-neutral-950">
                         <tr>
-                            <td class="px-4 py-3 font-semibold text-white"
-                                >EVT (GPD)</td
-                            >
-                            <td class="px-4 py-3 text-neutral-300"
-                                >Tail risk → CVaR / Expected Shortfall</td
-                            >
-                            <td class="px-4 py-3 text-neutral-400"
-                                >Honest about fat tails; sizes the frozen reserve.</td
-                            >
+                            <td class="px-4 py-3 font-semibold text-white">EVT</td>
+                            <td class="px-4 py-3 text-neutral-300">How bad a rare crash could get</td>
+                            <td class="px-4 py-3 text-neutral-400">Honest about rare disasters; sets the safety reserve.</td>
                         </tr>
                         <tr>
-                            <td class="px-4 py-3 font-semibold text-white">HMM</td
-                            >
-                            <td class="px-4 py-3 text-neutral-300"
-                                >Latent regime classification</td
-                            >
-                            <td class="px-4 py-3 text-neutral-400"
-                                >Detects regime shifts before vol confirms.</td
-                            >
+                            <td class="px-4 py-3 font-semibold text-white">HMM</td>
+                            <td class="px-4 py-3 text-neutral-300">What mood the market is in</td>
+                            <td class="px-4 py-3 text-neutral-400">Spots a shift in the market before prices confirm it.</td>
                         </tr>
                         <tr>
-                            <td class="px-4 py-3 font-semibold text-white"
-                                >GARCH(1,1)</td
-                            >
-                            <td class="px-4 py-3 text-neutral-300"
-                                >Conditional vol forecast</td
-                            >
-                            <td class="px-4 py-3 text-neutral-400"
-                                >Prices the premium the system collects.</td
-                            >
+                            <td class="px-4 py-3 font-semibold text-white">GARCH</td>
+                            <td class="px-4 py-3 text-neutral-300">How wild prices will swing next</td>
+                            <td class="px-4 py-3 text-neutral-400">Sets a fair price for the 'insurance' the system sells.</td>
                         </tr>
                     </tbody>
                 </table>
