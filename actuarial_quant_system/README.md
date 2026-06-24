@@ -1,0 +1,151 @@
+# Actuarial Quant System
+
+A decoupled, capital-survival-first research stack that treats every trade as an
+**underwritten insurance liability**. Backend math is pure `numpy`/`scipy`; the
+engine runs 24/7 as a headless daemon and serves an on-demand Next.js portal.
+
+> **Safety posture:** read-only / informational. `PAPER_TRADING_ONLY` defaults to
+> `true`, the risk gate is hardcoded and AI-free, and the execution layer has **no
+> withdrawal code path and no bank-network access** by construction. Execution
+> stays disconnected until a validated paper track record exists.
+
+## Architecture
+
+```
+actuarial_quant_system/
+├── src/
+│   ├── config.py                 # env wiring (NOT risk limits)
+│   ├── data_pipeline/            # async WS feed + Redis pub/sub bus
+│   │   └── stream_bus.py
+│   ├── models/                   # pure actuarial & regime math
+│   │   ├── actuarial_engine.py   # Cramér-Lundberg ruin, EVT/GPD CVaR, loss reserve
+│   │   └── regime_models.py      # GARCH(1,1) + Gaussian HMM (Baum-Welch/Viterbi)
+│   ├── risk_gate/                # hardcoded isolation firewall (fail-closed)
+│   │   └── pre_trade_check.py
+│   ├── execution/                # read-only broker adapter, withdrawal-blocked
+│   │   └── broker_connector.py
+│   └── api_dashboard/            # FastAPI orchestration
+│       └── main.py
+├── deploy/
+│   └── actuarial-trading-engine.service   # systemd 24/7 daemon unit
+└── frontend/components/Dashboard.tsx       # Next.js / Tailwind / lucide portal
+```
+
+## Run the backend
+
+```bash
+cd actuarial_quant_system
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env            # edit as needed
+uvicorn src.api_dashboard.main:app --host 127.0.0.1 --port 8200 --reload
+```
+
+Then: `http://127.0.0.1:8200/docs`
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/daily-briefing` | Tab-1 executive report payload (persisted) |
+| `GET /api/v1/fund-allocation` | Tab-2 layers, aggregated from open positions |
+| `GET /api/v1/regime` | GARCH + HMM regime snapshot |
+| `GET /api/v1/signals` | Variance Risk Premium + underwriting signal per asset |
+| `GET /api/v1/risk/ruin` | Cramér-Lundberg ruin probability |
+| `GET /api/v1/macro-propagation` | SVAR / VAR(1) shock propagation + credibility (Tab 3) |
+| `GET /api/v1/trades` | Recent paper fills (audit trail) |
+| `POST /api/v1/cycle/run` | Trigger one paper underwriting cycle manually |
+| `POST /api/v1/onboarding/validate` | Validate API keys (paper-safe), seed allocation |
+| `POST /api/v1/reallocate` | Internal reallocation / deposit advice |
+
+### Autonomous paper underwriting
+
+On boot the daemon starts a background loop that, every `CYCLE_INTERVAL_SECONDS`,
+runs the full pipeline per asset: **regime (HMM) → VRP signal → strategy structure
+→ hardcoded risk gate → simulated fill → loss-reserve lock (Redis) → persist
+(Postgres) → audit**. Every fill is paper-only; there is no live-order path.
+State is restored from Redis on restart, so survival math survives a reboot.
+
+### Frontend (Next.js)
+
+```bash
+cd frontend
+cp .env.local.example .env.local      # point NEXT_PUBLIC_QUANT_API at the engine
+npm install
+npm run dev                           # http://localhost:3000
+```
+
+## Run the daemon (Linux, 24/7)
+
+```bash
+sudo cp deploy/actuarial-trading-engine.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now actuarial-trading-engine
+journalctl -u actuarial-trading-engine -f
+```
+
+## Frontend
+
+`Dashboard.tsx` drops into a Next.js (App Router) project. Set
+`NEXT_PUBLIC_QUANT_API=http://127.0.0.1:8200` and render `<Dashboard />`.
+Requires `lucide-react` and Tailwind.
+
+## Deploy to the cloud (so your live website shows data)
+
+The engine can't run on Vercel (native deps + a 24/7 loop), so it deploys as its
+own container. A `Dockerfile` + `render.yaml` are included. Pick one host:
+
+**Railway (easiest):**
+1. [railway.app](https://railway.app) → New Project → Deploy from GitHub repo.
+2. In the service settings set **Root Directory = `actuarial_quant_system`**
+   (Railway auto-detects the Dockerfile there).
+3. Deploy. Copy the generated public URL, e.g. `https://<name>.up.railway.app`.
+4. Hit `https://<name>.up.railway.app/health` → should return `{"status":"ok"}`.
+
+**Render (blueprint):**
+1. [render.com](https://render.com) → New → Blueprint → pick this repo.
+   Render reads `actuarial_quant_system/render.yaml`.
+2. Deploy, then check `<your-render-url>/health`.
+
+**Then point your SvelteKit site at it.** In the Vercel project for
+Situation-Monitor, add an env var:
+```
+ACTUARIAL_API_URL = https://<your-engine-url>
+```
+Redeploy the site. The `/quant` page flips from "Engine Offline" to live data.
+
+> Stays in `PAPER_TRADING_ONLY=true` / `EXECUTION_MODE=paper` by default — pure
+> paper, zero risk. Attach a Render/Railway Postgres + Redis and set
+> `POSTGRES_DSN` / `REDIS_URL` to get durable history + reboot-safe reserves.
+
+## Going live — sandbox first (Tradier)
+
+The engine ships in `EXECUTION_MODE=paper` (internal simulator). To route the
+underwriting cycle through a real broker API, use **Tradier sandbox** — a paper
+environment with a real API, so orders are genuine API calls against fake money.
+
+1. Create a free account at [tradier.com](https://tradier.com) → Dashboard →
+   **API Access** → copy your **Sandbox** access token and account id (`VA...`).
+   Create the token **without** withdrawal scope.
+2. Set in `.env`:
+   ```
+   EXECUTION_MODE="tradier_sandbox"
+   TRADIER_ENV="sandbox"
+   TRADIER_ACCESS_TOKEN="<your sandbox token>"
+   TRADIER_ACCOUNT_ID="<VA...>"
+   ```
+3. Restart the engine and check `GET /api/v1/broker/status` → `valid: true`.
+   `GET /api/v1/broker/quote/AAPL` and `/broker/balances` confirm read access.
+4. The autonomous cycle now places **real sandbox orders** (still risk-gated).
+
+**Funding is manual and external.** You fund the Tradier account yourself through
+your own bank; this system has no bank/ACH/SWIFT access and cannot pull funds.
+Sandbox needs no funding at all. Only move to `TRADIER_ENV=production` after a
+validated paper/sandbox track record.
+
+## Three independent safety layers (why it can't move your money)
+
+1. **API-key scoping** — keys are minted READ (≤ TRADE) only; WITHDRAW disabled
+   at the venue, so signed withdrawal requests are cryptographically rejected.
+2. **No withdrawal code path** — there is no `withdraw()/transfer()/payout()`
+   method anywhere; you can't call what doesn't exist.
+3. **No bank reachability** — no ACH/SWIFT/wire/card rails; only HTTPS/WSS to the
+   trading venue.

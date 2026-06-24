@@ -1,0 +1,79 @@
+; ============================================================================
+; actuarial-trading-engine.service
+; ----------------------------------------------------------------------------
+; systemd unit that runs the Actuarial Quant System as a silent, windowless,
+; always-on background daemon. Launches on boot, runs headless (no TTY/GUI),
+; and auto-restarts within 5 seconds on any crash or network exception.
+;
+; Install:
+;   sudo cp deploy/actuarial-trading-engine.service /etc/systemd/system/
+;   sudo systemctl daemon-reload
+;   sudo systemctl enable --now actuarial-trading-engine
+; Inspect:
+;   systemctl status actuarial-trading-engine
+;   journalctl -u actuarial-trading-engine -f
+; ============================================================================
+
+[Unit]
+Description=Actuarial Quant System - capital-survival underwriting engine
+Documentation=https://localhost/docs
+; Only start once the network stack and (optional) local Redis are up.
+After=network-online.target redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+; --- dedicated unprivileged service account (create beforehand) ---
+User=quant
+Group=quant
+
+; --- working dir + environment ---
+WorkingDirectory=/opt/actuarial_quant_system
+EnvironmentFile=/opt/actuarial_quant_system/.env
+; Force unbuffered, headless operation: no controlling terminal, logs to journald.
+Environment=PYTHONUNBUFFERED=1
+
+; --- launch Uvicorn (the FastAPI async event loop) ---
+; Bind to loopback by default; expose via a reverse proxy if remote access is needed.
+ExecStart=/opt/actuarial_quant_system/.venv/bin/uvicorn \
+    src.api_dashboard.main:app \
+    --host 127.0.0.1 \
+    --port 8200 \
+    --workers 1 \
+    --log-level info \
+    --no-access-log
+
+; --- 24/7 resilience: always restart, within 5 seconds ---
+Restart=always
+RestartSec=5
+; If it crash-loops more than 5 times in 60s, back off (avoid hammering the venue).
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+; --- run silent / windowless: detach from any terminal, send IO to journal ---
+StandardInput=null
+StandardOutput=journal
+StandardError=journal
+TTYPath=/dev/null
+
+; --- security hardening (defense in depth for a financial daemon) ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/actuarial_quant_system
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+; Restrict outbound sockets to IP networking only (HTTPS/WSS to the venue).
+RestrictAddressFamilies=AF_INET AF_INET6
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

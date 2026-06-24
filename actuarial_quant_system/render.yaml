@@ -1,0 +1,30 @@
+# Render Blueprint for the Actuarial Quant Engine.
+# In Render: New → Blueprint → point at this repo. Render reads this file.
+services:
+  - type: web
+    name: actuarial-quant-engine
+    runtime: docker
+    plan: starter                      # free/low tier is fine for paper mode
+    dockerfilePath: ./actuarial_quant_system/Dockerfile
+    dockerContext: ./actuarial_quant_system
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PAPER_TRADING_ONLY
+        value: "true"
+      - key: EXECUTION_MODE
+        value: paper
+      - key: CYCLE_INTERVAL_SECONDS
+        value: "60"
+      - key: SEED_EQUITY_USD
+        value: "180000"
+      # The SvelteKit app calls the engine server-side via its proxy, so CORS is
+      # not strictly needed; "*" keeps direct /health checks easy.
+      - key: CORS_ORIGIN
+        value: "*"
+      # Optional — attach a Render Postgres/Redis and paste their URLs here to
+      # enable durable history + reboot-safe loss reserves.
+      # - key: POSTGRES_DSN
+      #   value: ""
+      # - key: REDIS_URL
+      #   value: ""

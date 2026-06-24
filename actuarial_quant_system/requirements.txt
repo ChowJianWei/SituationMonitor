@@ -1,0 +1,21 @@
+# --- API & server ---
+fastapi
+uvicorn[standard]
+pydantic
+
+# --- math core (actuarial / EVT / GARCH / HMM) ---
+numpy
+scipy
+
+# --- infra ---
+redis
+httpx
+
+# --- optional live feed (graceful fallback if absent) ---
+websockets
+
+# --- historical log DB (PostgreSQL) ---
+asyncpg
+
+# --- tests ---
+pytest
